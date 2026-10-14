@@ -230,15 +230,14 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> config_entries.OptionsFlow:
         """Get options flow handler."""
-        return WiserKnxOptionsFlowHandler(config_entry)
+        return WiserKnxOptionsFlowHandler()
 
 
 class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle options flow for Wiser for KNX."""
+    """Handle options flow for Wiser for KNX.
 
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
+    self.config_entry is provided by the base class (HA 2024.12+).
+    """
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

@@ -99,7 +99,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 
 The integration can download your controller's configuration through its management API (`/api/management/v1`) using the same credentials. Two ZIP archives are stored per backup: the **system** configuration and the **project** (SCADA) configuration. Both are encrypted with a password you choose.
 
-**Setup:** open the integration's **Configure** (options) dialog and set:
+**Setup (any time after the controller has been added):** go to **Settings → Devices & services → Wiser for KNX** and click **Configure** (or the gear icon on the integration entry). Set:
 
 - **Backup password**: at least 8 characters with an uppercase letter, a lowercase letter and a digit (the controller enforces this). Leave it empty later to keep the current one.
 - **Automatic backup interval (hours)**: `0` disables scheduled backups.

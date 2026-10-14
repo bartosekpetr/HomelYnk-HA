@@ -92,8 +92,9 @@ class WiserKnxBackupManager:
         """Download every backup kind and store the files; raise HomeAssistantError on failure."""
         if not self.configured:
             raise HomeAssistantError(
-                "Set a backup password in the integration options first "
-                "(at least 8 characters with an uppercase letter, a lowercase letter and a digit)"
+                "Set a backup password first: Settings > Devices & services > Wiser for KNX > "
+                "Configure (gear icon). Use at least 8 characters with an uppercase letter, "
+                "a lowercase letter and a digit"
             )
 
         async with self._lock:
