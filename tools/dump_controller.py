@@ -49,7 +49,11 @@ def fetch(host: str, auth: str, name: str):
     )
     req = urllib.request.Request(
         f"https://{host}{API_BASE}/{name}",
-        headers={"Authorization": f"Basic {auth}", "Accept": "application/json"},
+        headers={
+            "Authorization": f"Basic {auth}",
+            "Accept": "application/vnd.api+json, application/json",
+            "Content-Type": "application/vnd.api+json",
+        },
     )
     with opener.open(req, timeout=30) as resp:
         return json.load(resp)
