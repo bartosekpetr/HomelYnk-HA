@@ -28,6 +28,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from .const import DOMAIN
 from .coordinator import WiserKnxDataUpdateCoordinator
 from .entity import WiserKnxBaseEntity
+from .widgets import is_binary_datapoint
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -45,11 +46,13 @@ async def async_setup_entry(
         for func_id, func in coordinator.data["functions"].items():
             # Exclude functions handled by other domains (light, switch, cover, climate)
             cat = coordinator.classify_function(func)
-            if cat in ("light", "switch", "cover", "climate"):
+            if cat in ("light", "switch", "cover", "climate", "skip"):
                 continue
 
             dps = func.get("datapoints", {})
             for dp_id, dp in dps.items():
+                if cat == "binary_sensor" and is_binary_datapoint(func, dp):
+                    continue
                 entities.append(WiserKnxSensor(coordinator, entry.entry_id, func_id, dp_id))
 
     async_add_entities(entities)

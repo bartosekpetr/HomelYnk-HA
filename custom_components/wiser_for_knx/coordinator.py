@@ -10,28 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import WiserKnxAuthError, WiserKnxClient
-from .const import (
-    DEFAULT_SCAN_INTERVAL,
-    DOMAIN,
-    FCT_AIR_QUALITY,
-    FCT_ALARM,
-    FCT_ALARM_DEW_POINT,
-    FCT_ALARM_WATER,
-    FCT_BLINDS,
-    FCT_DIMMING,
-    FCT_GAUGE,
-    FCT_GENERIC_THERMOSTAT,
-    FCT_ITRV,
-    FCT_MOVEMENT,
-    FCT_POWER,
-    FCT_SWITCHING,
-    FCT_SWITCHING_LIGHT,
-    FCT_SWITCHING_SOCKET,
-    FCT_TEMPERATURE_AIR_FAN,
-    FCT_VDC_THERMOSTAT,
-    FCT_WEATHER,
-    FCT_WINDOW_DOOR,
-)
+from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
+from .widgets import classify_function
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,56 +77,5 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @staticmethod
     def classify_function(func_dict: dict[str, Any]) -> str:
-        """Classify a function into light, switch, cover, climate, or sensor."""
-        types = func_dict.get("types", [])
-        title = (func_dict.get("title") or "").lower()
-
-        # 1. Dimmers
-        if any(t == FCT_DIMMING or "dimming" in t.lower() for t in types):
-            return "light"
-
-        # 2. Switching lights
-        if any(t == FCT_SWITCHING_LIGHT or "switchinglight" in t.lower() for t in types):
-            return "light"
-
-        # 3. Switches and sockets
-        if any(
-            t in (FCT_SWITCHING_SOCKET, FCT_SWITCHING) or "switch" in t.lower() or "socket" in t.lower()
-            for t in types
-        ):
-            return "switch"
-
-        # 4. Blinds / Covers
-        if any(t == FCT_BLINDS or "blind" in t.lower() or "shutter" in t.lower() for t in types):
-            return "cover"
-
-        # 5. Climate / HVAC / Thermostats
-        if any(
-            t in (FCT_TEMPERATURE_AIR_FAN, FCT_GENERIC_THERMOSTAT, FCT_VDC_THERMOSTAT, FCT_ITRV)
-            or "thermostat" in t.lower()
-            or "climate" in t.lower()
-            for t in types
-        ):
-            return "climate"
-
-        # 6. Sensors
-        if any(
-            t in (FCT_POWER, FCT_AIR_QUALITY, FCT_WEATHER, FCT_GAUGE, FCT_WINDOW_DOOR, FCT_MOVEMENT, FCT_ALARM, FCT_ALARM_DEW_POINT, FCT_ALARM_WATER)
-            or "sensor" in t.lower()
-            or "alarm" in t.lower()
-            or "power" in t.lower()
-            for t in types
-        ):
-            return "sensor"
-
-        # Heuristic fallbacks on title
-        if any(w in title for w in ["dimm", "light", "lamp", "spot", "led", "eclairage"]):
-            return "light"
-        if any(w in title for w in ["switch", "socket", "prise", "plug"]):
-            return "switch"
-        if any(w in title for w in ["blind", "shutter", "volet", "curtain"]):
-            return "cover"
-        if any(w in title for w in ["thermostat", "temp", "heating", "cooling", "chauffage"]):
-            return "climate"
-
-        return "sensor"
+        """Classify a function into a Home Assistant platform category."""
+        return classify_function(func_dict)

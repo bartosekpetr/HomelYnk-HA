@@ -35,6 +35,7 @@ if "homeassistant" not in sys.modules:
 
     sys.modules["homeassistant.components"] = MagicMock()
     sys.modules["homeassistant.components.light"] = MagicMock()
+    sys.modules["homeassistant.components.binary_sensor"] = MagicMock()
     sys.modules["homeassistant.components.switch"] = MagicMock()
     sys.modules["homeassistant.components.sensor"] = MagicMock()
     sys.modules["homeassistant.components.cover"] = MagicMock()

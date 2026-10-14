@@ -24,6 +24,7 @@ DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
 
 # Supported Home Assistant Platforms
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.LIGHT,
     Platform.SWITCH,
     Platform.SENSOR,

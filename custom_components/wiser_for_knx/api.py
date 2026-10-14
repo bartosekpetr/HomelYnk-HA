@@ -215,6 +215,9 @@ class WiserKnxClient:
                             "types": item.get("meta", {}).get("@type", []),
                             "location_id": loc_id,
                             "alarm_text": item.get("attributes", {}).get("schneider:alarmText"),
+                            "widget_id": item.get("attributes", {}).get("schneider:widgetId"),
+                            "title_base": item.get("attributes", {}).get("schneider:titleBase"),
+                            "widget_settings": item.get("attributes", {}).get("schneider:widgetSettings"),
                             "datapoints": {},  # Will be populated with associated datapoints
                         }
                     return functions

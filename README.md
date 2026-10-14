@@ -29,6 +29,8 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
   - **Sensors** (`sensor`): Temperature, humidity, illuminance (lux), power (W), energy (kWh), voltage, current, and CO2 (DPT 9, 12, 13, 14, etc.).
   - **Covers** (`cover`): Blinds, shutters, and curtains with position control (DPT 1 / DPT 5).
   - **Climate** (`climate`): Thermostats with target temperature setpoint control.
+  - **Binary sensors** (`binary_sensor`): Water/general/fire/gas alarms, door/window contacts and motion detectors.
+- **Touch-widget-aware classification**: Each imported device is classified using the Wiser for KNX Touch widget type (e.g. `se-thermostat`, `se-light-dimmer-rotary`, `se-alarm-water`, `se-window-door-sensor`), falling back to the KNX function type, then to datapoint roles (e.g. height/slat position → cover), then to the title. Scenes, Sonos, chart and custom-content widgets are skipped. Classification is best-effort; please report misclassified devices via the issue tracker.
 
 ---
 
@@ -63,6 +65,8 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
            ├── light.py
            ├── switch.py
            ├── sensor.py
+           ├── binary_sensor.py
+           ├── widgets.py
            ├── cover.py
            ├── climate.py
            ├── strings.json
