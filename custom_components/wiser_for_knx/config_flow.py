@@ -17,10 +17,12 @@ from .api import WiserKnxAuthError, WiserKnxClient, WiserKnxConnectionError
 from .const import (
     CONF_API_BASE,
     CONF_SCAN_INTERVAL,
+    CONF_VERIFY_SSL,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
     DEFAULT_USERNAME,
+    DEFAULT_VERIFY_SSL,
     DOMAIN,
 )
 
@@ -49,14 +51,16 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST].strip()
             port = user_input.get(CONF_PORT, DEFAULT_PORT)
             ssl = user_input.get(CONF_SSL, DEFAULT_SSL)
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
             username = user_input.get(CONF_USERNAME, "").strip() or None
             password = user_input.get(CONF_PASSWORD, "")
 
-            session = async_get_clientsession(self.hass, verify_ssl=False)
+            session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
             client = WiserKnxClient(
                 host=host,
                 port=port,
                 ssl=ssl,
+                verify_ssl=verify_ssl,
                 username=username,
                 password=password,
                 session=session,
@@ -79,6 +83,7 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_HOST: host,
                             CONF_PORT: port,
                             CONF_SSL: ssl,
+                            CONF_VERIFY_SSL: verify_ssl,
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
                             CONF_API_BASE: self._api_base,
@@ -95,6 +100,7 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_HOST, default=self._discovered_host or ""): str,
                 vol.Required(CONF_PORT, default=self._discovered_port or DEFAULT_PORT): int,
                 vol.Optional(CONF_SSL, default=DEFAULT_SSL): bool,
+                vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
                 vol.Optional(CONF_PASSWORD, default=""): str,
             }
@@ -152,14 +158,16 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST].strip()
             port = user_input.get(CONF_PORT, self._discovered_port)
             ssl = user_input.get(CONF_SSL, DEFAULT_SSL)
+            verify_ssl = user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
             username = user_input.get(CONF_USERNAME, "").strip() or None
             password = user_input.get(CONF_PASSWORD, "")
 
-            session = async_get_clientsession(self.hass, verify_ssl=False)
+            session = async_get_clientsession(self.hass, verify_ssl=verify_ssl)
             client = WiserKnxClient(
                 host=host,
                 port=port,
                 ssl=ssl,
+                verify_ssl=verify_ssl,
                 username=username,
                 password=password,
                 session=session,
@@ -179,6 +187,7 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                             CONF_HOST: host,
                             CONF_PORT: port,
                             CONF_SSL: ssl,
+                            CONF_VERIFY_SSL: verify_ssl,
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
                             CONF_API_BASE: self._api_base,
@@ -193,6 +202,7 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_HOST, default=self._discovered_host or ""): str,
                 vol.Required(CONF_PORT, default=self._discovered_port or DEFAULT_PORT): int,
                 vol.Optional(CONF_SSL, default=DEFAULT_SSL): bool,
+                vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
                 vol.Optional(CONF_PASSWORD, default=""): str,
             }

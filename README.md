@@ -78,6 +78,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
    - Click **Add Integration** in the bottom right corner.
    - Search for **Wiser for KNX**.
    - Enter your controller's IP address and credentials.
+5. **Verify SSL certificate** is off by default because controllers typically use self-signed certificates. Enable it if your controller has a trusted certificate; otherwise credentials can be intercepted by someone on your local network.
 
 ---
 

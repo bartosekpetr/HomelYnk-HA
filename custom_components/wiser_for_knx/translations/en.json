@@ -8,6 +8,7 @@
           "host": "Host / IP Address",
           "port": "Port",
           "ssl": "Use SSL / HTTPS",
+          "verify_ssl": "Verify SSL certificate (disable for self-signed certificates)",
           "username": "Username",
           "password": "Password"
         }
@@ -19,6 +20,7 @@
           "host": "Host / IP Address",
           "port": "Port",
           "ssl": "Use SSL / HTTPS",
+          "verify_ssl": "Verify SSL certificate (disable for self-signed certificates)",
           "username": "Username",
           "password": "Password"
         }

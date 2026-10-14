@@ -14,9 +14,11 @@ from .api import WiserKnxClient
 from .const import (
     CONF_API_BASE,
     CONF_SCAN_INTERVAL,
+    CONF_VERIFY_SSL,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
+    DEFAULT_VERIFY_SSL,
     DOMAIN,
     PLATFORMS,
 )
@@ -32,6 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     host = entry.data[CONF_HOST]
     port = entry.data.get(CONF_PORT, DEFAULT_PORT)
     ssl = entry.data.get(CONF_SSL, DEFAULT_SSL)
+    verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
     username = entry.data.get(CONF_USERNAME)
     password = entry.data.get(CONF_PASSWORD)
     scan_interval = entry.options.get(
@@ -39,11 +42,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     )
 
-    session = async_get_clientsession(hass, verify_ssl=False)
+    session = async_get_clientsession(hass, verify_ssl=verify_ssl)
     client = WiserKnxClient(
         host=host,
         port=port,
         ssl=ssl,
+        verify_ssl=verify_ssl,
         username=username,
         password=password,
         session=session,

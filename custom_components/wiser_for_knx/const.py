@@ -8,6 +8,7 @@ DOMAIN = "wiser_for_knx"
 CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_SSL = "ssl"
+CONF_VERIFY_SSL = "verify_ssl"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_SCAN_INTERVAL = "scan_interval"
@@ -16,6 +17,7 @@ CONF_API_BASE = "api_base"
 # Defaults
 DEFAULT_PORT = 443
 DEFAULT_SSL = True
+DEFAULT_VERIFY_SSL = False
 DEFAULT_SCAN_INTERVAL = 10  # seconds
 DEFAULT_USERNAME = "admin"
 DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"

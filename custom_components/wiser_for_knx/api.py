@@ -31,11 +31,13 @@ class WiserKnxClient:
         username: str | None = None,
         password: str | None = None,
         session: aiohttp.ClientSession | None = None,
+        verify_ssl: bool = False,
     ) -> None:
         """Initialize the client."""
         self.host = host
         self.port = port
         self.ssl = ssl
+        self.verify_ssl = verify_ssl
         self.username = username
         self.password = password
         self._session = session
@@ -68,8 +70,8 @@ class WiserKnxClient:
     async def _get_session(self) -> aiohttp.ClientSession:
         """Return or create aiohttp session."""
         if self._session is None or self._session.closed:
-            # Self-signed certificates are standard on local Wiser controllers
-            connector = aiohttp.TCPConnector(ssl=False)
+            # Local controllers commonly use self-signed certificates, so verification is opt-in
+            connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
             self._session = aiohttp.ClientSession(connector=connector)
             self._own_session = True
         return self._session
@@ -90,7 +92,7 @@ class WiserKnxClient:
                 well_known_url,
                 headers={"Accept": "application/json, */*"},
                 timeout=timeout,
-                ssl=False,
+                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
@@ -121,7 +123,7 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=False,
+                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     return True
@@ -149,7 +151,7 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=False,
+                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     json_data = await resp.json(content_type=None)
@@ -187,7 +189,7 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=False,
+                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     json_data = await resp.json(content_type=None)
@@ -239,7 +241,7 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=False,
+                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     json_data = await resp.json(content_type=None)
@@ -309,7 +311,7 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=False,
+                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status in (200, 204):
                     return True
