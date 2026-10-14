@@ -30,6 +30,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
   - **Covers** (`cover`): Blinds, shutters, and curtains with position control (DPT 1 / DPT 5).
   - **Climate** (`climate`): Thermostats with target temperature setpoint control.
   - **Binary sensors** (`binary_sensor`): Water/general/fire/gas alarms, door/window contacts and motion detectors.
+- **Controller backups**: Create password-protected backups of the controller's system and project configuration from Home Assistant, on demand (button or `wiser_for_knx.create_backup` service) or on a schedule, with automatic retention. See [Controller Backups](#-controller-backups).
 - **Touch-widget-aware classification**: Each imported device is classified using the Wiser for KNX Touch widget type (e.g. `se-thermostat`, `se-light-dimmer-rotary`, `se-alarm-water`, `se-window-door-sensor`), falling back to the KNX function type, then to datapoint roles (e.g. height/slat position → cover), then to the title. Scenes, Sonos, chart and custom-content widgets are skipped. Classification is best-effort; please report misclassified devices via the issue tracker.
 
 ---
@@ -66,6 +67,10 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
            ├── switch.py
            ├── sensor.py
            ├── binary_sensor.py
+           ├── backup.py
+           ├── backup_utils.py
+           ├── button.py
+           ├── services.yaml
            ├── widgets.py
            ├── cover.py
            ├── climate.py
@@ -87,6 +92,29 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
    - Search for **Wiser for KNX**.
    - Enter your controller's IP address and credentials.
 5. **Verify SSL certificate** is off by default because controllers typically use self-signed certificates. Enable it if your controller has a trusted certificate; otherwise credentials can be intercepted by someone on your local network.
+
+---
+
+## 💾 Controller Backups
+
+The integration can download your controller's configuration through its management API (`/api/management/v1`) using the same credentials. Two ZIP archives are stored per backup: the **system** configuration and the **project** (SCADA) configuration. Both are encrypted with a password you choose.
+
+**Setup:** open the integration's **Configure** (options) dialog and set:
+
+- **Backup password**: at least 8 characters with an uppercase letter, a lowercase letter and a digit (the controller enforces this). Leave it empty later to keep the current one.
+- **Automatic backup interval (hours)**: `0` disables scheduled backups.
+- **Number of backups to keep**: older backups are deleted per type (default 7).
+
+**Use it:**
+
+- Press the **Create backup** button on the controller device, or call the `wiser_for_knx.create_backup` service (for example from an automation).
+- The **Last backup** diagnostic sensor shows when the last backup succeeded, and the last error if one failed.
+- Files are written to `wiser_backups/` inside your Home Assistant configuration folder, named `wiser_<host>_<system|project>_<timestamp>.zip`.
+
+**Notes:**
+
+- Keep the backup password safe. It is stored in the Home Assistant config entry and is needed to restore a backup in the Wiser for KNX web interface. This integration does not restore backups.
+- The backups contain your whole configuration. Treat the folder as sensitive and include it in your own offsite backups.
 
 ---
 

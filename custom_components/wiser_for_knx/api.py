@@ -9,6 +9,8 @@ from typing import Any
 import aiohttp
 from aiohttp import BasicAuth
 
+from .const import MGMT_API_BASE
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -282,6 +284,34 @@ class WiserKnxClient:
             _LOGGER.error("Error retrieving datapoints: %s", err)
 
         return {}
+
+    async def async_get_backup(self, kind_path: str, password: str) -> bytes:
+        """Download a password-protected configuration backup from the management API."""
+        session = await self._get_session()
+        url = f"{self.base_url}{MGMT_API_BASE}{kind_path}"
+        try:
+            async with session.post(
+                url,
+                json={"data": {"password": password}},
+                headers={
+                    "Accept": "application/octet-stream, application/json",
+                    "Content-Type": "application/json",
+                },
+                auth=self._get_auth(),
+                timeout=aiohttp.ClientTimeout(total=180),
+                ssl=self.verify_ssl,
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise WiserKnxAuthError("Unauthorized creating backup")
+                if resp.status == 400:
+                    raise WiserKnxConnectionError(
+                        "Controller rejected the backup request (check the backup password requirements)"
+                    )
+                if resp.status != 200:
+                    raise WiserKnxConnectionError(f"Backup request returned HTTP {resp.status}")
+                return await resp.read()
+        except aiohttp.ClientError as err:
+            raise WiserKnxConnectionError(f"Backup request failed: {err}") from err
 
     async def write_datapoint_value(self, datapoint_id: str, value: Any) -> bool:
         """Write value to a datapoint using PUT /datapoints/values."""

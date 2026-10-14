@@ -27,6 +27,7 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     ) -> None:
         """Initialize the coordinator."""
         self.client = client
+        self.backup_manager = None
         super().__init__(
             hass,
             _LOGGER,

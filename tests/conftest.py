@@ -20,6 +20,12 @@ if "homeassistant" not in sys.modules:
     sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()
     sys.modules["homeassistant.helpers.device_registry"] = MagicMock()
     sys.modules["homeassistant.helpers.entity_platform"] = MagicMock()
+    sys.modules["homeassistant.helpers.entity"] = MagicMock()
+    sys.modules["homeassistant.helpers.event"] = MagicMock()
+    sys.modules["homeassistant.helpers.selector"] = MagicMock()
+    sys.modules["homeassistant.util"] = MagicMock()
+    sys.modules["homeassistant.util.dt"] = MagicMock()
+    sys.modules["homeassistant.data_entry_flow"] = MagicMock()
 
     class _BaseMockCoordinator:
         def __init__(self, *args, **kwargs):
@@ -35,6 +41,7 @@ if "homeassistant" not in sys.modules:
 
     sys.modules["homeassistant.components"] = MagicMock()
     sys.modules["homeassistant.components.light"] = MagicMock()
+    sys.modules["homeassistant.components.button"] = MagicMock()
     sys.modules["homeassistant.components.binary_sensor"] = MagicMock()
     sys.modules["homeassistant.components.switch"] = MagicMock()
     sys.modules["homeassistant.components.sensor"] = MagicMock()

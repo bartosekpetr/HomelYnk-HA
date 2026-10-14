@@ -23,14 +23,53 @@ from homeassistant.const import (
     UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN
 from .coordinator import WiserKnxDataUpdateCoordinator
-from .entity import WiserKnxBaseEntity
+from .entity import WiserKnxBaseEntity, controller_device_info
 from .widgets import is_binary_datapoint
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class WiserKnxLastBackupSensor(SensorEntity):
+    """Time of the last successful controller backup."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Last backup"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_should_poll = False
+
+    def __init__(self, coordinator: WiserKnxDataUpdateCoordinator, entry_id: str) -> None:
+        """Initialize the sensor."""
+        self._manager = coordinator.backup_manager
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_last_backup"
+        self._attr_device_info = controller_device_info(coordinator, entry_id)
+
+    async def async_added_to_hass(self) -> None:
+        """Refresh the state whenever a backup finishes."""
+        self.async_on_remove(self._manager.add_listener(self.async_write_ha_state))
+
+    @property
+    def native_value(self):
+        """Return the time of the last backup."""
+        return self._manager.last_backup
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return backup details."""
+        attrs: dict[str, Any] = {
+            "scheduled": self._manager.interval_hours > 0 and self._manager.configured,
+            "keep": self._manager.keep,
+        }
+        if self._manager.last_files:
+            attrs["files"] = self._manager.last_files
+        if self._manager.last_error:
+            attrs["last_error"] = self._manager.last_error
+        return attrs
 
 
 async def async_setup_entry(
@@ -41,7 +80,7 @@ async def async_setup_entry(
     """Set up Wiser for KNX sensors."""
     coordinator: WiserKnxDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities: list[WiserKnxSensor] = []
+    entities: list[SensorEntity] = [WiserKnxLastBackupSensor(coordinator, entry.entry_id)]
     if coordinator.data and "functions" in coordinator.data:
         for func_id, func in coordinator.data["functions"].items():
             # Exclude functions handled by other domains (light, switch, cover, climate)

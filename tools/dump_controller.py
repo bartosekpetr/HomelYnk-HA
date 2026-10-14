@@ -32,6 +32,8 @@ for _mod in (
     "homeassistant.helpers.update_coordinator", "homeassistant.helpers.entity",
     "homeassistant.helpers.entity_platform", "homeassistant.components",
     "homeassistant.components.binary_sensor", "aiohttp", "voluptuous",
+    "homeassistant.helpers.event", "homeassistant.helpers.device_registry",
+    "homeassistant.util", "homeassistant.util.dt",
 ):
     sys.modules.setdefault(_mod, MagicMock())
 

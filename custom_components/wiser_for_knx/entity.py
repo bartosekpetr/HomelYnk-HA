@@ -11,6 +11,19 @@ from .const import DOMAIN
 from .coordinator import WiserKnxDataUpdateCoordinator
 
 
+def controller_device_info(
+    coordinator: WiserKnxDataUpdateCoordinator, entry_id: str
+) -> DeviceInfo:
+    """Return device info for the controller itself."""
+    return DeviceInfo(
+        identifiers={(DOMAIN, entry_id)},
+        name=f"Wiser for KNX controller ({coordinator.client.host})",
+        manufacturer="Schneider Electric",
+        model="Wiser for KNX controller",
+        configuration_url=coordinator.client.base_url,
+    )
+
+
 class WiserKnxBaseEntity(CoordinatorEntity[WiserKnxDataUpdateCoordinator]):
     """Base representation of an entity associated with a Wiser for KNX function."""
 

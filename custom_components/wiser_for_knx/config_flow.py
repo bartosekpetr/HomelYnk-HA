@@ -12,12 +12,19 @@ from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_SSL, C
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from .api import WiserKnxAuthError, WiserKnxClient, WiserKnxConnectionError
+from .backup_utils import is_valid_backup_password
 from .const import (
     CONF_API_BASE,
+    CONF_BACKUP_INTERVAL,
+    CONF_BACKUP_KEEP,
+    CONF_BACKUP_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
+    DEFAULT_BACKUP_INTERVAL,
+    DEFAULT_BACKUP_KEEP,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
@@ -238,18 +245,50 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Manage options."""
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            errors: dict[str, str] = {}
+            password = user_input.get(CONF_BACKUP_PASSWORD) or self.config_entry.options.get(
+                CONF_BACKUP_PASSWORD
+            )
+            if user_input.get(CONF_BACKUP_INTERVAL, 0) > 0 and not is_valid_backup_password(password):
+                errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
+            elif user_input.get(CONF_BACKUP_PASSWORD) and not is_valid_backup_password(password):
+                errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
+            if not errors:
+                data = {**user_input}
+                if password:
+                    data[CONF_BACKUP_PASSWORD] = password
+                return self.async_create_entry(title="", data=data)
+            return self._show_form(errors)
 
-        current_interval = self.config_entry.options.get(
-            CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL
-        )
+        return self._show_form({})
 
+    def _show_form(self, errors: dict[str, str]) -> FlowResult:
+        options = self.config_entry.options
         schema = vol.Schema(
             {
-                vol.Optional(CONF_SCAN_INTERVAL, default=current_interval): vol.All(
-                    int, vol.Range(min=2, max=120)
+                vol.Optional(
+                    CONF_SCAN_INTERVAL,
+                    default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
+                ): vol.All(int, vol.Range(min=2, max=120)),
+                vol.Optional(CONF_BACKUP_PASSWORD): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
                 ),
+                vol.Optional(
+                    CONF_BACKUP_INTERVAL,
+                    default=options.get(CONF_BACKUP_INTERVAL, DEFAULT_BACKUP_INTERVAL),
+                ): vol.All(int, vol.Range(min=0, max=720)),
+                vol.Optional(
+                    CONF_BACKUP_KEEP,
+                    default=options.get(CONF_BACKUP_KEEP, DEFAULT_BACKUP_KEEP),
+                ): vol.All(int, vol.Range(min=1, max=100)),
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={
+                "backup_set": "yes" if options.get(CONF_BACKUP_PASSWORD) else "no",
+            },
+        )

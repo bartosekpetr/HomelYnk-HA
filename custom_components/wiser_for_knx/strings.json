@@ -39,11 +39,23 @@
     "step": {
       "init": {
         "title": "Wiser for KNX Options",
-        "description": "Configure polling parameters.",
+        "description": "Configure polling and controller backups. Backup password set: {backup_set}. Leave the password empty to keep the current one. The controller requires at least 8 characters with an uppercase letter, a lowercase letter and a digit.",
         "data": {
-          "scan_interval": "Polling Interval (seconds)"
+          "scan_interval": "Polling Interval (seconds)",
+          "backup_password": "Backup password",
+          "backup_interval_hours": "Automatic backup interval (hours, 0 = off)",
+          "backup_keep": "Number of backups to keep"
         }
       }
+    },
+    "error": {
+      "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit."
+    }
+  },
+  "services": {
+    "create_backup": {
+      "name": "Create controller backup",
+      "description": "Download the system and project backups from the controller and store them in the wiser_backups folder of the Home Assistant configuration directory."
     }
   }
 }

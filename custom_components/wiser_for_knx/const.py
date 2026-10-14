@@ -22,9 +22,24 @@ DEFAULT_SCAN_INTERVAL = 10  # seconds
 DEFAULT_USERNAME = "admin"
 DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
 
+# Management API (backups, device info) and backup settings
+MGMT_API_BASE = "/api/management/v1"
+CONF_BACKUP_PASSWORD = "backup_password"
+CONF_BACKUP_INTERVAL = "backup_interval_hours"
+CONF_BACKUP_KEEP = "backup_keep"
+DEFAULT_BACKUP_INTERVAL = 0  # hours, 0 = scheduled backups disabled
+DEFAULT_BACKUP_KEEP = 7
+BACKUP_DIR = "wiser_backups"
+BACKUP_KINDS = {
+    "system": "/flashsys/system/backupConfiguration",
+    "project": "/scada-main/general/backup",
+}
+SERVICE_CREATE_BACKUP = "create_backup"
+
 # Supported Home Assistant Platforms
 PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
+    Platform.BUTTON,
     Platform.LIGHT,
     Platform.SWITCH,
     Platform.SENSOR,
