@@ -33,6 +33,9 @@ ENV/
 .coverage
 htmlcov/
 
+# Raw controller API dumps (contain private installation data)
+wiser_dump_*.json
+
 # IDE
 .vscode/
 .idea/

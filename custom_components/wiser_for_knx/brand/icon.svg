@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Wiser for KNX integration icon">
+  <rect width="256" height="256" rx="56" fill="#12606B"/>
+  <path d="M128 52 L204 116 V196 a8 8 0 0 1 -8 8 H60 a8 8 0 0 1 -8 -8 V116 Z" fill="none" stroke="#FFFFFF" stroke-width="12" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M92 168 H164 L128 120 Z" fill="none" stroke="#7FE0C3" stroke-width="8" stroke-linejoin="round"/>
+  <circle cx="92" cy="168" r="13" fill="#7FE0C3"/>
+  <circle cx="164" cy="168" r="13" fill="#7FE0C3"/>
+  <circle cx="128" cy="120" r="13" fill="#7FE0C3"/>
+</svg>

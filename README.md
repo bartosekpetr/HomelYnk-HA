@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="custom_components/wiser_for_knx/brand/icon.svg" alt="Integration icon" width="96">
+</p>
+
 # Home Assistant Integration for Wiser for KNX (Local API)
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/default)
@@ -85,3 +89,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 ## 📄 License
 
 This project is licensed under the [MIT License](LICENSE).
+
+## ⚖️ Disclaimer
+
+This is an unofficial, community project. It is not affiliated with, endorsed by, or sponsored by Schneider Electric or the KNX Association. "Wiser", "Schneider Electric" and "KNX" are trademarks of their respective owners and are used only to describe compatibility. The icon is an original design and is not a Schneider Electric or KNX logo.
