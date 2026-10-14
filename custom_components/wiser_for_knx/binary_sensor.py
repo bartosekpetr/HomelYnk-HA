@@ -20,7 +20,7 @@ from .widgets import CAT_BINARY_SENSOR, binary_device_class, is_binary_datapoint
 
 _LOGGER = logging.getLogger(__name__)
 
-_ON_VALUES = ("on", "true", "1", "active", "alarm", "open", "opened", "detected")
+_ON_VALUES = ("on", "true", "1", "active", "alarm", "open", "opened", "detected", "start")
 
 
 async def async_setup_entry(

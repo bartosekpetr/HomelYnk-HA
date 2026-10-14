@@ -92,3 +92,31 @@ def test_binary_datapoint_selection():
     assert is_binary_datapoint(func, {"title": "Low battery"})
     assert not is_binary_datapoint(func, {"title": "Battery level", "unit": "%"})
     assert not is_binary_datapoint(func, {"title": "Illuminance", "unit": "lx"})
+
+
+def test_binary_datapoints_use_type_and_value_not_title():
+    # Titles on a real controller are user-defined group object names.
+    func = _func()
+    assert is_binary_datapoint(func, {"title": "switch 0n Off", "types": ["dic:dpa.810.51"], "value": "false"})
+    assert is_binary_datapoint(func, {"title": "x", "types": ["dic:dpa.811.51"], "value": "close"})
+    assert is_binary_datapoint(func, {"title": "x", "types": ["dic:dpa.414.63"], "value": "start"})
+    assert is_binary_datapoint(func, {"title": "x", "types": ["dic:dpa.344.51"], "value": None})
+
+
+def test_numeric_and_uuid_datapoints_are_not_binary():
+    func = _func()
+    assert not is_binary_datapoint(func, {"title": "Motion lux", "types": ["dic:dpa.414.62"], "value": "2200.32"})
+    assert not is_binary_datapoint(func, {"title": "Detection", "types": ["dic:dpa.65533.51"], "value": "77"})
+    assert not is_binary_datapoint(func, {"title": "Alarm trigger", "types": ["urn:knx:dpt.uuid"], "value": "0000"})
+
+
+def test_real_controller_function_urns():
+    assert classify_function(_func(types=["urn:knx:fct.temperatureAirFan"])) == "climate"
+    assert classify_function(_func(types=["urn:knx:fct.genericThermostat", "urn:knx:fct.schneider.logicThermostat.type.thermostat"])) == "climate"
+    assert classify_function(_func(types=["urn:knx:fct.iTRV"])) == "climate"
+    assert classify_function(_func(types=["urn:knx:fct.alarmDewPoint"])) == "binary_sensor"
+    assert classify_function(_func(types=["urn:knx:fct.alarmLight"])) == "binary_sensor"
+    assert classify_function(_func(types=["urn:knx:fct.alarmAutomation"])) == "skip"
+    assert classify_function(_func(types=["urn:knx:fct.power", "urn:knx:fct.schneider.power.group.invertor"])) == "sensor"
+    assert classify_function(_func(types=["urn:knx:fct.gasSensor"])) == "sensor"
+    assert classify_function(_func(types=["urn:knx:fct.info"])) == "sensor"

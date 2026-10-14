@@ -122,6 +122,22 @@ _BINARY_DP_WORDS = (
     "failure",
 )
 
+# Datapoint archetypes / types seen on real controllers that carry an on/off state
+_BINARY_DP_TYPES = (
+    "dic:dpa.810.51",  # alarm
+    "dic:dpa.344.51",  # status/alarm flag
+    "dic:dpa.808.51",  # status flag
+    "dic:dpa.811.51",  # open/close
+    "dic:dpa.414.63",  # motion detection (start/stop)
+    "urn:knx:dpt.bool",
+    "urn:knx:dpt.openclose",
+    "urn:knx:dpt.switch",
+)
+_BINARY_TOKENS = frozenset(
+    {"true", "false", "on", "off", "open", "opened", "close", "closed",
+     "start", "stop", "active", "inactive", "alarm", "detected"}
+)
+
 
 def detect_widget_type(func: dict[str, Any]) -> str | None:
     """Return the Touch widget id for a function if the API exposes one."""
@@ -146,6 +162,9 @@ def _titles(func: dict[str, Any]) -> list[str]:
 
 def _classify_by_urn(types: list[str]) -> str | None:
     lowered = [t.lower() for t in types]
+
+    if any("alarmautomation" in t for t in lowered):
+        return CAT_SKIP
 
     if any(t == FCT_DIMMING or "dimming" in t for t in types):
         return CAT_LIGHT
@@ -255,11 +274,36 @@ def binary_device_class(func: dict[str, Any]) -> str | None:
     return None
 
 
+def _is_number(value: Any) -> bool:
+    try:
+        float(str(value))
+    except ValueError:
+        return False
+    return True
+
+
 def is_binary_datapoint(func: dict[str, Any], dp: dict[str, Any]) -> bool:
-    """Return True if a datapoint of a binary-sensor function is an on/off state."""
+    """Return True if a datapoint of a binary-sensor function is an on/off state.
+
+    Datapoint titles are user-defined group object names, so the datapoint
+    type and the current value are checked before the title.
+    """
+    types = [t.lower() for t in dp.get("types") or []]
+    if "urn:knx:dpt.uuid" in types or dp.get("unit"):
+        return False
+
+    value = dp.get("value")
+    token = str(value).strip().lower() if value is not None else ""
+    if token in _BINARY_TOKENS:
+        return True
+    if token and _is_number(token):
+        return False
+    if any(t in _BINARY_DP_TYPES for t in types):
+        return True
+
     title = (dp.get("title") or "").lower()
     if "level" in title and "battery" in title:
         return False
     if any(w in title for w in _BINARY_DP_WORDS):
         return True
-    return dp.get("value_type") == "boolean" and not dp.get("unit")
+    return dp.get("value_type") == "boolean"
