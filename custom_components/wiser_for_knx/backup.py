@@ -15,9 +15,28 @@ from homeassistant.util import dt as dt_util
 
 from .api import WiserKnxClient
 from .backup_utils import backup_filename, is_valid_backup_password, list_backups, prune_backups
-from .const import BACKUP_DIR, BACKUP_KINDS
+from .const import BACKUP_DIR, BACKUP_KINDS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
+
+
+async def async_pre_backup(hass: HomeAssistant) -> None:
+    """Home Assistant backup hook: refresh controller backups so they are included in the HA backup."""
+    managers = [
+        getattr(c, "backup_manager", None) for c in hass.data.get(DOMAIN, {}).values()
+    ]
+    for manager in managers:
+        if manager is None or not manager.configured:
+            continue
+        try:
+            await manager.async_create_backup()
+        except HomeAssistantError as err:
+            # Never block the Home Assistant backup because the controller is unreachable.
+            _LOGGER.warning("Controller backup before Home Assistant backup failed: %s", err)
+
+
+async def async_post_backup(hass: HomeAssistant) -> None:
+    """Home Assistant backup hook; nothing to clean up."""
 
 
 class WiserKnxBackupManager:
