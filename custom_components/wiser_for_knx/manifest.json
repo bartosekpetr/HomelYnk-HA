@@ -1,0 +1,40 @@
+{
+  "domain": "wiser_for_knx",
+  "name": "Wiser for KNX",
+  "codeowners": ["@user"],
+  "config_flow": true,
+  "documentation": "https://github.com/your-username/ha-wiser-for-knx",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/your-username/ha-wiser-for-knx/issues",
+  "requirements": [],
+  "version": "0.1.0",
+  "zeroconf": [
+    {
+      "type": "_http._tcp.local.",
+      "name": "wiser*"
+    },
+    {
+      "type": "_http._tcp.local.",
+      "name": "spacelynk*"
+    },
+    {
+      "type": "_http._tcp.local.",
+      "name": "logicmachine*"
+    },
+    {
+      "type": "_knx._udp.local."
+    }
+  ],
+  "dhcp": [
+    {
+      "macaddress": "000CC6*"
+    },
+    {
+      "macaddress": "000054*"
+    },
+    {
+      "macaddress": "E04F43*"
+    }
+  ]
+}

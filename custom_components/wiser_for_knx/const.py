@@ -1,0 +1,50 @@
+"""Constants for the Wiser for KNX integration."""
+
+from homeassistant.const import Platform
+
+DOMAIN = "wiser_for_knx"
+
+# Configuration keys
+CONF_HOST = "host"
+CONF_PORT = "port"
+CONF_SSL = "ssl"
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
+CONF_SCAN_INTERVAL = "scan_interval"
+CONF_API_BASE = "api_base"
+
+# Defaults
+DEFAULT_PORT = 443
+DEFAULT_SSL = True
+DEFAULT_SCAN_INTERVAL = 10  # seconds
+DEFAULT_USERNAME = "admin"
+DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
+
+# Supported Home Assistant Platforms
+PLATFORMS: list[Platform] = [
+    Platform.LIGHT,
+    Platform.SWITCH,
+    Platform.SENSOR,
+    Platform.COVER,
+    Platform.CLIMATE,
+]
+
+# KNX IoT 3rd Party Function URNs
+FCT_SWITCHING_LIGHT = "urn:knx:fct.switchingLight"
+FCT_DIMMING = "urn:knx:fct.dimming"
+FCT_SWITCHING_SOCKET = "urn:knx:fct.switchingSocket"
+FCT_SWITCHING = "urn:knx:fct.switching"
+FCT_BLINDS = "urn:knx:fct.blindsVertical"
+FCT_TEMPERATURE_AIR_FAN = "urn:knx:fct.temperatureAirFan"
+FCT_GENERIC_THERMOSTAT = "urn:knx:fct.genericThermostat"
+FCT_VDC_THERMOSTAT = "urn:knx:fct.VDCThermostat"
+FCT_ITRV = "urn:knx:fct.iTRV"
+FCT_POWER = "urn:knx:fct.power"
+FCT_AIR_QUALITY = "urn:knx:fct.airQuality"
+FCT_WEATHER = "urn:knx:fct.weather"
+FCT_GAUGE = "urn:knx:fct.gauge"
+FCT_WINDOW_DOOR = "urn:knx:fct.windowDoorSensor"
+FCT_MOVEMENT = "urn:knx:fct.movementDetector"
+FCT_ALARM = "urn:knx:fct.alarm"
+FCT_ALARM_DEW_POINT = "urn:knx:fct.alarmDewPoint"
+FCT_ALARM_WATER = "urn:knx:fct.alarmWater"

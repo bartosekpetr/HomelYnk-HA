@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Wiser for KNX",
+        "description": "Enter the connection details for your Wiser for KNX (or spaceLYnk / LogicMachine) controller.",
+        "data": {
+          "host": "Host / IP Address",
+          "port": "Port",
+          "ssl": "Use SSL / HTTPS",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "credentials": {
+        "title": "Wiser for KNX Authentication",
+        "description": "Wiser for KNX was discovered at {host}. Please provide credentials to access the local API.",
+        "data": {
+          "host": "Host / IP Address",
+          "port": "Port",
+          "ssl": "Use SSL / HTTPS",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Wiser for KNX on the specified host/port.",
+      "invalid_auth": "Authentication failed. Please verify username and password.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "Device is already configured in Home Assistant."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Wiser for KNX Options",
+        "description": "Configure polling parameters.",
+        "data": {
+          "scan_interval": "Polling Interval (seconds)"
+        }
+      }
+    }
+  }
+}
