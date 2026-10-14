@@ -36,7 +36,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 2. Click the three dots in the top right corner and choose **Custom repositories**.
 3. Paste the URL of this repository:
    ```
-   https://github.com/<your-github-username>/ha-wiser-for-knx
+   https://github.com/bartosekpetr/HomelYnk-HA
    ```
 4. Category: **Integration**.
 5. Click **Add**, find **Wiser for KNX**, and click **Download**.
@@ -78,24 +78,6 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
    - Click **Add Integration** in the bottom right corner.
    - Search for **Wiser for KNX**.
    - Enter your controller's IP address and credentials.
-
----
-
-## 🛠️ How to Upload this Project to GitHub
-
-To push this project to GitHub from your computer:
-
-```bash
-cd "ha-wiser-for-knx"
-git init
-git add .
-git commit -m "Initial commit of Wiser for KNX Home Assistant integration"
-git branch -M main
-git remote add origin https://github.com/<your-username>/ha-wiser-for-knx.git
-git push -u origin main
-```
-
-Once pushed, you can share it or link it directly in HACS.
 
 ---
 
