@@ -24,12 +24,23 @@
           "username": "Username",
           "password": "Password"
         }
+      },
+      "backup": {
+        "title": "Controller backups",
+        "description": "Back up this controller from Home Assistant. Leave the password empty to skip backups for now; you can set them up later under Configure. The password protects the backup files and must have at least 8 characters with an uppercase letter, a lowercase letter and a digit.",
+        "data": {
+          "backup_password": "Backup password",
+          "backup_interval_hours": "Automatic backup interval (hours, 0 = off)",
+          "backup_keep": "Number of backups to keep",
+          "backup_now": "Create a backup right away"
+        }
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to Wiser for KNX on the specified host/port.",
       "invalid_auth": "Authentication failed. Please verify username and password.",
-      "unknown": "An unexpected error occurred."
+      "unknown": "An unexpected error occurred.",
+      "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit."
     },
     "abort": {
       "already_configured": "Device is already configured in Home Assistant."

@@ -27,8 +27,10 @@ MGMT_API_BASE = "/api/management/v1"
 CONF_BACKUP_PASSWORD = "backup_password"
 CONF_BACKUP_INTERVAL = "backup_interval_hours"
 CONF_BACKUP_KEEP = "backup_keep"
-DEFAULT_BACKUP_INTERVAL = 0  # hours, 0 = scheduled backups disabled
+DEFAULT_BACKUP_INTERVAL = 24  # hours, 0 = scheduled backups disabled
 DEFAULT_BACKUP_KEEP = 7
+CONF_BACKUP_NOW = "backup_now"
+DATA_INITIAL_BACKUP = f"{DOMAIN}_initial_backup"
 BACKUP_DIR = "wiser_backups"
 BACKUP_KINDS = {
     "system": "/flashsys/system/backupConfiguration",
@@ -38,13 +40,10 @@ SERVICE_CREATE_BACKUP = "create_backup"
 
 # Supported Home Assistant Platforms
 PLATFORMS: list[Platform] = [
-    Platform.BINARY_SENSOR,
     Platform.BUTTON,
     Platform.LIGHT,
     Platform.SWITCH,
     Platform.SENSOR,
-    Platform.COVER,
-    Platform.CLIMATE,
 ]
 
 # KNX IoT 3rd Party Function URNs

@@ -23,15 +23,11 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
     - **Services JSON API** (`/services/json/`)
 - **Seamless Credential Handling**:
   - Prompts for credentials (HTTP Basic Auth / API credentials) directly within the Home Assistant UI during configuration.
-- **Automatic Entity Generation**:
-  - **Lights** (`light`): Standard on/off lights and dimmers (DPT 5 / percentage or 0-255).
-  - **Switches** (`switch`): Relay switches, sockets, and binary actuators (DPT 1).
-  - **Sensors** (`sensor`): Temperature, humidity, illuminance (lux), power (W), energy (kWh), voltage, current, and CO2 (DPT 9, 12, 13, 14, etc.).
-  - **Covers** (`cover`): Blinds, shutters, and curtains with position control (DPT 1 / DPT 5).
-  - **Climate** (`climate`): Thermostats with target temperature setpoint control.
-  - **Binary sensors** (`binary_sensor`): Water/general/fire/gas alarms, door/window contacts and motion detectors.
-- **Controller backups**: Create password-protected backups of the controller's system and project configuration from Home Assistant, on demand (button or `wiser_for_knx.create_backup` service) or on a schedule, with automatic retention. See [Controller Backups](#-controller-backups).
-- **Touch-widget-aware classification**: Each imported device is classified using the Wiser for KNX Touch widget type (e.g. `se-thermostat`, `se-light-dimmer-rotary`, `se-alarm-water`, `se-window-door-sensor`), falling back to the KNX function type, then to datapoint roles (e.g. height/slat position → cover), then to the title. Scenes, Sonos, chart and custom-content widgets are skipped. Classification is best-effort; please report misclassified devices via the issue tracker.
+- **Controller backups (main focus)**: Create password-protected backups of the controller's system and project configuration from Home Assistant, set up during the initial connection. Run them on demand (button or `wiser_for_knx.create_backup` service), on a schedule, and automatically before every Home Assistant backup, with automatic retention. See [Controller Backups](#-controller-backups).
+- **Light and switch import**: Only lights and switches are imported as devices, so you can control them from Home Assistant:
+  - **Lights** (`light`): on/off lights and dimmers.
+  - **Switches** (`switch`): relay switches, sockets and binary actuators.
+  - Devices are classified from the KNX function type (and Touch widget metadata when available). Sensors, covers, thermostats, alarms and scenes are intentionally not imported.
 
 ---
 
@@ -66,14 +62,11 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
            ├── light.py
            ├── switch.py
            ├── sensor.py
-           ├── binary_sensor.py
            ├── backup.py
            ├── backup_utils.py
            ├── button.py
            ├── services.yaml
            ├── widgets.py
-           ├── cover.py
-           ├── climate.py
            ├── strings.json
            └── translations/
                └── en.json
@@ -87,6 +80,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 1. In Home Assistant, go to **Settings** -> **Devices & Services**.
 2. If your Wiser for KNX is powered on and connected to the same LAN, Home Assistant will show a **"Discovered"** notification card.
 3. Click **Configure**, enter your **Username** (default: `admin`) and **Password**, and click **Submit**.
+   A second step then asks for the backup settings (see [Controller Backups](#-controller-backups)); you can skip it by leaving the backup password empty.
 4. If auto-discovery is not enabled on your network:
    - Click **Add Integration** in the bottom right corner.
    - Search for **Wiser for KNX**.
@@ -99,10 +93,10 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 
 The integration can download your controller's configuration through its management API (`/api/management/v1`) using the same credentials. Two ZIP archives are stored per backup: the **system** configuration and the **project** (SCADA) configuration. Both are encrypted with a password you choose.
 
-**Setup (any time after the controller has been added):** go to **Settings → Devices & services → Wiser for KNX** and click **Configure** (or the gear icon on the integration entry). Set:
+**Setup:** the backup settings are asked right after the connection is verified when you add the controller, together with an option to **create a backup right away**. You can change them at any time: go to **Settings → Devices & services → Wiser for KNX** and click **Configure** (or the gear icon on the integration entry). Set:
 
-- **Backup password**: at least 8 characters with an uppercase letter, a lowercase letter and a digit (the controller enforces this). Leave it empty later to keep the current one.
-- **Automatic backup interval (hours)**: `0` disables scheduled backups.
+- **Backup password**: at least 8 characters with an uppercase letter, a lowercase letter and a digit (the controller enforces this). Leave it empty to skip backups for now (or, later in Configure, to keep the current one).
+- **Automatic backup interval (hours)**: default 24; `0` disables scheduled backups.
 - **Number of backups to keep**: older backups are deleted per type (default 7).
 
 **Use it:**

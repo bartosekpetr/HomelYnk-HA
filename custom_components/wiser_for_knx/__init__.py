@@ -7,8 +7,9 @@ import logging
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_SSL, CONF_USERNAME
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.exceptions import ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WiserKnxClient
@@ -26,6 +27,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
     DEFAULT_VERIFY_SSL,
+    DATA_INITIAL_BACKUP,
     DOMAIN,
     PLATFORMS,
     SERVICE_CREATE_BACKUP,
@@ -34,6 +36,18 @@ from .coordinator import WiserKnxDataUpdateCoordinator
 from .entity import controller_device_info
 
 _LOGGER = logging.getLogger(__name__)
+
+# Domains this integration used to provide; their entities are removed on setup
+_REMOVED_DOMAINS = {"binary_sensor", "cover", "climate"}
+
+
+def _remove_unsupported_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove entities created by earlier versions for no longer supported device types."""
+    registry = er.async_get(hass)
+    for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
+        is_backup_sensor = ent.unique_id.endswith("_last_backup")
+        if ent.domain in _REMOVED_DOMAINS or (ent.domain == "sensor" and not is_backup_sensor):
+            registry.async_remove(ent.entity_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -116,6 +130,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Forward setup to all entity platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    _remove_unsupported_entities(hass, entry)
+
+    pending = hass.data.get(DATA_INITIAL_BACKUP, set())
+    if backup_manager.configured and entry.unique_id in pending:
+        pending.discard(entry.unique_id)
+
+        async def _initial_backup() -> None:
+            try:
+                await backup_manager.async_create_backup()
+            except HomeAssistantError as err:
+                _LOGGER.warning("Initial controller backup failed: %s", err)
+
+        entry.async_create_background_task(hass, _initial_backup(), "wiser_initial_backup")
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 

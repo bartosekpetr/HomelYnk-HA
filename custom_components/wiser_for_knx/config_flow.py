@@ -20,9 +20,11 @@ from .const import (
     CONF_API_BASE,
     CONF_BACKUP_INTERVAL,
     CONF_BACKUP_KEEP,
+    CONF_BACKUP_NOW,
     CONF_BACKUP_PASSWORD,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
+    DATA_INITIAL_BACKUP,
     DEFAULT_BACKUP_INTERVAL,
     DEFAULT_BACKUP_KEEP,
     DEFAULT_PORT,
@@ -47,6 +49,52 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_port: int = DEFAULT_PORT
         self._discovered_hostname: str | None = None
         self._api_base: str = "/api/w4knx/3rdparty/v1"
+        self._entry_title: str = ""
+        self._entry_data: dict[str, Any] = {}
+
+    async def async_step_backup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Configure controller backups right after the connection was verified."""
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            password = user_input.get(CONF_BACKUP_PASSWORD) or ""
+            now = user_input.get(CONF_BACKUP_NOW, False)
+            if (password or now) and not is_valid_backup_password(password):
+                errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
+            else:
+                options: dict[str, Any] = {
+                    CONF_BACKUP_INTERVAL: user_input.get(
+                        CONF_BACKUP_INTERVAL, DEFAULT_BACKUP_INTERVAL
+                    ),
+                    CONF_BACKUP_KEEP: user_input.get(CONF_BACKUP_KEEP, DEFAULT_BACKUP_KEEP),
+                }
+                if password:
+                    options[CONF_BACKUP_PASSWORD] = password
+                    if now:
+                        self.hass.data.setdefault(DATA_INITIAL_BACKUP, set()).add(
+                            self.unique_id or self._entry_data[CONF_HOST]
+                        )
+                return self.async_create_entry(
+                    title=self._entry_title, data=self._entry_data, options=options
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Optional(CONF_BACKUP_PASSWORD): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
+                vol.Optional(
+                    CONF_BACKUP_INTERVAL, default=DEFAULT_BACKUP_INTERVAL
+                ): vol.All(int, vol.Range(min=0, max=720)),
+                vol.Optional(CONF_BACKUP_KEEP, default=DEFAULT_BACKUP_KEEP): vol.All(
+                    int, vol.Range(min=1, max=100)
+                ),
+                vol.Optional(CONF_BACKUP_NOW, default=True): bool,
+            }
+        )
+        return self.async_show_form(step_id="backup", data_schema=schema, errors=errors)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -84,18 +132,17 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(f"wiser_knx_{host}")
                     self._abort_if_unique_id_configured()
 
-                    return self.async_create_entry(
-                        title=f"Wiser for KNX ({host})",
-                        data={
-                            CONF_HOST: host,
-                            CONF_PORT: port,
-                            CONF_SSL: ssl,
-                            CONF_VERIFY_SSL: verify_ssl,
-                            CONF_USERNAME: username,
-                            CONF_PASSWORD: password,
-                            CONF_API_BASE: self._api_base,
-                        },
-                    )
+                    self._entry_title = f"Wiser for KNX ({host})"
+                    self._entry_data = {
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_SSL: ssl,
+                        CONF_VERIFY_SSL: verify_ssl,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_API_BASE: self._api_base,
+                    }
+                    return await self.async_step_backup()
             except (WiserKnxAuthError,):
                 errors["base"] = "invalid_auth"
             except (WiserKnxConnectionError, Exception) as err:
@@ -188,18 +235,17 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not authenticated:
                     errors["base"] = "invalid_auth"
                 else:
-                    return self.async_create_entry(
-                        title=f"Wiser for KNX ({self._discovered_hostname or host})",
-                        data={
-                            CONF_HOST: host,
-                            CONF_PORT: port,
-                            CONF_SSL: ssl,
-                            CONF_VERIFY_SSL: verify_ssl,
-                            CONF_USERNAME: username,
-                            CONF_PASSWORD: password,
-                            CONF_API_BASE: self._api_base,
-                        },
-                    )
+                    self._entry_title = f"Wiser for KNX ({self._discovered_hostname or host})"
+                    self._entry_data = {
+                        CONF_HOST: host,
+                        CONF_PORT: port,
+                        CONF_SSL: ssl,
+                        CONF_VERIFY_SSL: verify_ssl,
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_API_BASE: self._api_base,
+                    }
+                    return await self.async_step_backup()
             except Exception as err:
                 _LOGGER.exception("Connection verification failed: %s", err)
                 errors["base"] = "cannot_connect"
@@ -248,9 +294,7 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
             password = user_input.get(CONF_BACKUP_PASSWORD) or self.config_entry.options.get(
                 CONF_BACKUP_PASSWORD
             )
-            if user_input.get(CONF_BACKUP_INTERVAL, 0) > 0 and not is_valid_backup_password(password):
-                errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
-            elif user_input.get(CONF_BACKUP_PASSWORD) and not is_valid_backup_password(password):
+            if user_input.get(CONF_BACKUP_PASSWORD) and not is_valid_backup_password(password):
                 errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
             if not errors:
                 data = {**user_input}
