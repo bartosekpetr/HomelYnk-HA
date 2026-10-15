@@ -308,7 +308,9 @@ class WiserKnxClient:
                         "Controller rejected the backup request (check the backup password requirements)"
                     )
                 if resp.status != 200:
-                    raise WiserKnxConnectionError(f"Backup request returned HTTP {resp.status}")
+                    raise WiserKnxConnectionError(
+                        f"Backup request to {kind_path} returned HTTP {resp.status}"
+                    )
                 return await resp.read()
         except aiohttp.ClientError as err:
             raise WiserKnxConnectionError(f"Backup request failed: {err}") from err
@@ -346,7 +348,7 @@ class WiserKnxClient:
                 timeout=timeout,
                 ssl=self.verify_ssl,
             ) as resp:
-                if resp.status in (200, 204):
+                if resp.status in (200, 201, 202, 204):
                     return True
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError("Unauthorized writing datapoint value")

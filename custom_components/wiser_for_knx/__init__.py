@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.config_entries import ConfigEntry
@@ -138,10 +139,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         pending.discard(entry.unique_id)
 
         async def _initial_backup() -> None:
-            try:
-                await backup_manager.async_create_backup()
-            except HomeAssistantError as err:
-                _LOGGER.warning("Initial controller backup failed: %s", err)
+            for attempt in (1, 2):
+                try:
+                    await backup_manager.async_create_backup()
+                    return
+                except HomeAssistantError as err:
+                    _LOGGER.warning("Initial controller backup attempt %s failed: %s", attempt, err)
+                    if attempt == 1:
+                        await asyncio.sleep(60)
 
         entry.async_create_background_task(hass, _initial_backup(), "wiser_initial_backup")
 
