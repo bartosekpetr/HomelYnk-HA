@@ -37,6 +37,7 @@ htmlcov/
 wiser_dump_*.json
 wiser_backup_*.bin
 wiser_mgmt_probe.json
+touch_backup*.json
 
 # IDE
 .vscode/

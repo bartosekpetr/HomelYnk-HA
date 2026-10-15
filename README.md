@@ -118,6 +118,10 @@ The integration can download your controller's configuration through its managem
 
 This project is licensed under the [MIT License](LICENSE).
 
+## 🤝 Contributing / AI agents
+
+See [AGENTS.md](AGENTS.md) for the project overview, architecture and working rules, [docs/controller-api.md](docs/controller-api.md) for the controller APIs, and [docs/development.md](docs/development.md) for tests, tools and the release process.
+
 ## ⚖️ Disclaimer
 
 This is an unofficial, community project. It is not affiliated with, endorsed by, or sponsored by Schneider Electric or the KNX Association. "Wiser", "Schneider Electric" and "KNX" are trademarks of their respective owners and are used only to describe compatibility. The icon is an original design and is not a Schneider Electric or KNX logo.
