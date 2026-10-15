@@ -27,7 +27,22 @@ Spec: `schneider_knx_iot_3rdparty_v1_openapi.json` (repo root). JSON:API style.
 - Datapoint titles are user-defined group-object names; every `valueType` is `"string"` (values are strings such as `on`, `off`, `"0"`).
 - Light/switch datapoint types: `dpa.417.70` + `dpt.switch` (switchingLight/Socket on/off), `dpa.418.61` + `dpt.switch` and `dpa.418.63` + `dpt.scaling` (dimmer on/off and brightness %, unit `%`), `dpa.901.51` + `dpt.power` (socket power, W, read-only).
 - Binary-sensor datapoints (not imported any more but classified): `dpa.810.51`, `344.51`, `808.51`, `811.51` (`open`/`close`), `414.63` (`start`/`stop`). Numeric readings such as lux must not be treated as binary.
-- A recent dump with 6 Touch widgets (2 light switches, 1 socket, 3 dimmers) produced 9 functions: 3 `switchingLight`, 3 `dimming`, 2 `switchingSocket`, 1 `alarmAutomation` (skipped) → 6 lights, 2 switches. Multi-channel widgets may not expose every channel; see AGENTS.md open items.
+- A dump with 6 Touch widgets (2 light switches, 1 socket, 3 dimmers) produced 9 functions: 3 `switchingLight`, 3 `dimming`, 2 `switchingSocket`, 1 `alarmAutomation` (skipped) → 6 lights, 2 switches.
+
+### Which widget channels are exposed (tested deliberately)
+
+A test layout was configured with some channels incomplete, then compared with the dump:
+
+| Widget channel configuration | Exposed as function? |
+|---|---|
+| Light switch: switch object **and** status feedback (same or different group address) | yes |
+| Light switch: switch object only (mandatory field only, no status feedback) | **no** |
+| Light switch / socket: status feedback only (no switch object) | **no** |
+| Socket: switch + status (+ active power, device status) | yes; active power appears as a read-only `dpt.power` datapoint |
+| Dimmer: value + status value + switch + status switch | yes (`dimming` with `dpt.scaling` and `dpt.switch`) |
+| Dimmer: value + switch, no status feedback objects | **no** |
+
+Conclusion: the controller publishes a channel through the 3rd-party API only when it has both a write object and its status feedback, even where the Touch widget documentation marks the status feedback as optional (light switch). This is a controller behaviour, not an integration filter. Each channel becomes its own function (a 3-channel light-switch widget gives 3 lights). "Device status" objects are not exposed as datapoints. The same group address may be used for the switch and its status feedback.
 
 ## 2. Management API – `/api/management/v1`
 

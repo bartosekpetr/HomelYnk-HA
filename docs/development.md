@@ -44,6 +44,14 @@ py -3 tools\probe_management.py <controller-ip>    # tests the management API, w
 6. Scheduled backups run at the configured interval and old files are pruned to "keep" per kind.
 7. Restoring a ZIP in the Wiser web UI with the password (use a spare controller if possible; the integration itself never restores).
 
+## Remote debugging on the user's Home Assistant (optional)
+
+When the user enables the SSH add-on, an agent can inspect `/config` read-only (for example `ls /config/wiser_backups`, the deployed `manifest.json` version). Notes:
+- Credentials are given by the user in the chat and must **never** be written to files, commits or docs; pass them via an environment variable and remove it afterwards. Recommend that the user rotates the password when debugging is finished.
+- Windows `ssh.exe` cannot take a password non-interactively; use `paramiko` (`py -3 -m pip install --user paramiko`).
+- The SSH user is not a supervisor user: `ha core logs` fails with "unauthorized", and HA OS keeps no `home-assistant.log`. Ask the user to download the log from Settings → System → Logs.
+- Do not modify files in `/config`, restart HA or read backup contents without asking.
+
 ## Release process
 
 1. Update code, `README.md` and, if needed, `AGENTS.md`/docs.

@@ -79,7 +79,7 @@ Files in the repo root that must never be committed (git-ignored): `wiser_dump_*
 Released: v0.1.0 → v0.5.1 (see GitHub releases). Validated against real controller data: classification (unit tests use real URNs/types), management API calls (probe), backups end-to-end in HA, light/switch control (HTTP 202 handling).
 
 Open / unverified:
-- Multi-channel Touch widgets (e.g. a light-switch widget with 3 channels, a horizontal dimmer with 2): the latest dump shows 8 light/switch functions for 6 widgets, so not every channel may be exposed as its own function. Investigate with `tools/dump_controller.py`.
+- Multi-channel Touch widgets: resolved. The controller only exposes a channel that has both a write object and a status feedback object (see docs/controller-api.md). Channels missing either are not imported; this is documented in the README.
 - A 404 was seen once on the *initial* automatic backup (HTTP 404 from a backup endpoint) while the button worked; v0.5.1 names the failing endpoint and retries once. Check the log if it recurs.
 - Socket-switch power datapoints (`dpt.power`, W) are ignored now that sensors were removed.
 - RGB/RGBW and DALI lights are classified as lights but only on/off and brightness are implemented (no colour control).

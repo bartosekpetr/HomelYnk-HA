@@ -27,6 +27,7 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 - **Light and switch import**: Only lights and switches are imported as devices, so you can control them from Home Assistant:
   - **Lights** (`light`): on/off lights and dimmers.
   - **Switches** (`switch`): relay switches, sockets and binary actuators.
+  - **Touch configuration requirement:** the controller only publishes a widget channel through its API when the channel has **both** a switch/value object **and** a status feedback object (they may use the same group address). Channels with only one of them are not imported, even if the Touch widget marks the status feedback as optional.
   - Devices are classified from the KNX function type (and Touch widget metadata when available). Sensors, covers, thermostats, alarms and scenes are intentionally not imported.
 
 ---
