@@ -103,6 +103,7 @@ The integration can download your controller's configuration through its managem
 **Use it:**
 
 - Press the **Create backup** button on the controller device, or call the `wiser_for_knx.create_backup` service (for example from an automation).
+- **Controller health** diagnostic sensors (refreshed every 5 minutes): firmware version, uptime, CPU load (1 min), memory used %, storage used %. The firmware and hardware version are also shown on the controller device. If the management API is unreachable these sensors just become unavailable.
 - The **Last backup** diagnostic sensor shows when the last backup succeeded, and the last error if one failed.
 - Files are written to `wiser_backups/` inside your Home Assistant configuration folder, named `wiser_<host>_<system|project>_<timestamp>.zip`.
 

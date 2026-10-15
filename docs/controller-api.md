@@ -52,8 +52,8 @@ Spec is the vendor file `device-api.yaml` (kept outside the repo). Used by the i
 |---|---|---|
 | POST | `/flashsys/system/backupConfiguration` | system configuration backup (~5 KB ZIP) |
 | POST | `/scada-main/general/backup` | project/SCADA backup (~1.8 MB ZIP) |
-| GET | `/custom/deviceInfo` | firmware, hardware, architecture (not used yet) |
-| GET | `/flashsys/Status/SystemStatus` | status/uptime/memory (not used yet) |
+| GET | `/custom/deviceInfo` | firmware, hardware, architecture (used by the health sensors) |
+| GET | `/flashsys/Status/SystemStatus` | uptime, load, memory, partitions (used by the health sensors) |
 
 Backup request: headers `Accept: application/json, application/octet-stream, */*`, `Content-Type: application/json`, body `{"data":{"password":"<backup password>"}}`. The response is a ZIP with encrypted entries (`application/x-gzip` or `application/octet-stream` content type, but the magic bytes are `PK`). Status 400 = password rule violated; 401/403 = auth. Allow a long timeout (the client uses 180 s).
 

@@ -10,6 +10,7 @@ import aiohttp
 from aiohttp import BasicAuth
 
 from .const import MGMT_API_BASE
+from .health import parse_health
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -284,6 +285,32 @@ class WiserKnxClient:
             _LOGGER.error("Error retrieving datapoints: %s", err)
 
         return {}
+
+    async def _async_mgmt_get(self, path: str) -> dict[str, Any]:
+        """GET a management API path and return its `data` object."""
+        session = await self._get_session()
+        try:
+            async with session.get(
+                f"{self.base_url}{MGMT_API_BASE}{path}",
+                headers={"Accept": "application/json"},
+                auth=self._get_auth(),
+                timeout=aiohttp.ClientTimeout(total=15),
+                ssl=self.verify_ssl,
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise WiserKnxAuthError(f"Unauthorized reading {path}")
+                if resp.status != 200:
+                    raise WiserKnxConnectionError(f"{path} returned HTTP {resp.status}")
+                body = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise WiserKnxConnectionError(f"Request to {path} failed: {err}") from err
+        return (body or {}).get("data") or {}
+
+    async def async_get_health(self) -> dict[str, Any]:
+        """Return controller health values (firmware, uptime, load, memory, storage)."""
+        device_info = await self._async_mgmt_get("/custom/deviceInfo")
+        status = await self._async_mgmt_get("/flashsys/Status/SystemStatus")
+        return parse_health(device_info, status)
 
     async def async_get_backup(self, kind_path: str, password: str) -> bytes:
         """Download a password-protected configuration backup from the management API."""

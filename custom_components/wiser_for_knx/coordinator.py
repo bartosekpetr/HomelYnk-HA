@@ -16,6 +16,26 @@ from .widgets import classify_function
 _LOGGER = logging.getLogger(__name__)
 
 
+class WiserKnxHealthCoordinator(DataUpdateCoordinator[dict[str, Any]]):
+    """Polls controller health (firmware, uptime, load, memory, storage) every few minutes."""
+
+    def __init__(self, hass: HomeAssistant, client: WiserKnxClient) -> None:
+        """Initialize the coordinator."""
+        self.client = client
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_health",
+            update_interval=timedelta(minutes=5),
+        )
+
+    async def _async_update_data(self) -> dict[str, Any]:
+        try:
+            return await self.client.async_get_health()
+        except Exception as err:
+            raise UpdateFailed(f"Error reading controller health: {err}") from err
+
+
 class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Class to manage fetching KNX IoT data (locations, functions, datapoints) from Wiser."""
 
@@ -28,6 +48,7 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Initialize the coordinator."""
         self.client = client
         self.backup_manager = None
+        self.health: WiserKnxHealthCoordinator | None = None
         super().__init__(
             hass,
             _LOGGER,

@@ -33,21 +33,30 @@ from .const import (
     PLATFORMS,
     SERVICE_CREATE_BACKUP,
 )
-from .coordinator import WiserKnxDataUpdateCoordinator
+from .coordinator import WiserKnxDataUpdateCoordinator, WiserKnxHealthCoordinator
 from .entity import controller_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
 # Domains this integration used to provide; their entities are removed on setup
 _REMOVED_DOMAINS = {"binary_sensor", "cover", "climate"}
+# Unique-id suffixes of the sensors this integration still provides
+_SENSOR_SUFFIXES = (
+    "_last_backup",
+    "_firmware",
+    "_uptime",
+    "_load_1m",
+    "_memory_used_percent",
+    "_storage_used_percent",
+)
 
 
 def _remove_unsupported_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove entities created by earlier versions for no longer supported device types."""
     registry = er.async_get(hass)
     for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
-        is_backup_sensor = ent.unique_id.endswith("_last_backup")
-        if ent.domain in _REMOVED_DOMAINS or (ent.domain == "sensor" and not is_backup_sensor):
+        is_ours = ent.unique_id.endswith(_SENSOR_SUFFIXES)
+        if ent.domain in _REMOVED_DOMAINS or (ent.domain == "sensor" and not is_ours):
             registry.async_remove(ent.entity_id)
 
 
@@ -110,10 +119,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.backup_manager = backup_manager
     await backup_manager.async_start()
 
+    # Health is best effort: a failure only makes the health sensors unavailable
+    coordinator.health = WiserKnxHealthCoordinator(hass, client)
+    await coordinator.health.async_refresh()
+    if coordinator.health.data:
+        controller_extra = {"sw_version": coordinator.health.data.get("firmware"),
+                            "hw_version": coordinator.health.data.get("hardware")}
+    else:
+        controller_extra = {}
+
     # Register the controller itself so its entities and the function devices attach to it
     dr.async_get(hass).async_get_or_create(
         config_entry_id=entry.entry_id,
         **controller_device_info(coordinator, entry.entry_id),
+        **controller_extra,
     )
 
     if not hass.services.has_service(DOMAIN, SERVICE_CREATE_BACKUP):
