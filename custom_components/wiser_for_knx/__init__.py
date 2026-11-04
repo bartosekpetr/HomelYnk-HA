@@ -35,6 +35,7 @@ from .const import (
 )
 from .coordinator import WiserKnxDataUpdateCoordinator, WiserKnxHealthCoordinator
 from .entity import controller_device_info
+from .identity import stable_id_from_legacy
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -58,6 +59,28 @@ def _remove_unsupported_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
         is_ours = ent.unique_id.endswith(_SENSOR_SUFFIXES)
         if ent.domain in _REMOVED_DOMAINS or (ent.domain == "sensor" and not is_ours):
             registry.async_remove(ent.entity_id)
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Replace IP-based unique ids (v1) with stable ones.
+
+    Entities and devices are keyed by the config entry id, so they are untouched. A legacy
+    MAC-based id is rewritten to the plain MAC; an IP-based id is cleared and re-learned from
+    the controller (or from discovery) once it is reachable.
+    """
+    if entry.version > 2:
+        return False
+    if entry.version == 1:
+        new_id = stable_id_from_legacy(entry.unique_id)
+        if new_id and any(
+            other.unique_id == new_id
+            for other in hass.config_entries.async_entries(DOMAIN)
+            if other.entry_id != entry.entry_id
+        ):
+            new_id = None
+        hass.config_entries.async_update_entry(entry, unique_id=new_id, version=2)
+        _LOGGER.debug("Migrated %s to version 2 (unique id %s)", entry.entry_id, new_id)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -119,6 +142,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Health is best effort: a failure only makes the health sensors unavailable
     coordinator.health = WiserKnxHealthCoordinator(hass, client)
     await coordinator.health.async_refresh()
+    device_id = (coordinator.health.data or {}).get("device_id")
+    if device_id and entry.unique_id is None and not any(
+        other.unique_id == device_id for other in hass.config_entries.async_entries(DOMAIN)
+    ):
+        hass.config_entries.async_update_entry(entry, unique_id=device_id)
     if coordinator.health.data:
         controller_extra = {"sw_version": coordinator.health.data.get("firmware"),
                             "hw_version": coordinator.health.data.get("hardware")}
@@ -151,8 +179,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _remove_unsupported_entities(hass, entry)
 
     pending = hass.data.get(DATA_INITIAL_BACKUP, set())
-    if backup_manager.configured and entry.unique_id in pending:
-        pending.discard(entry.unique_id)
+    # The config flow keys the request by the stable id, or by host when none is known yet
+    pending_key = next((k for k in (entry.unique_id, host) if k in pending), None)
+    if backup_manager.configured and pending_key is not None:
+        pending.discard(pending_key)
 
         async def _initial_backup() -> None:
             for attempt in (1, 2):

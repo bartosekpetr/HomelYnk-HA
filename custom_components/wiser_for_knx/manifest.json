@@ -21,9 +21,6 @@
     {
       "type": "_http._tcp.local.",
       "name": "logicmachine*"
-    },
-    {
-      "type": "_knx._udp.local."
     }
   ],
   "dhcp": [

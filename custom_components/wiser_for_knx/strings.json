@@ -45,14 +45,15 @@
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Wiser for KNX on the specified host/port.",
+      "cannot_connect": "Failed to connect to Wiser for KNX on the specified host/port (the address answered, but not like the controller API).",
       "invalid_auth": "Authentication failed. Please verify username and password.",
       "unknown": "An unexpected error occurred.",
       "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit."
     },
     "abort": {
       "already_configured": "Device is already configured in Home Assistant.",
-      "reauth_successful": "Reauthentication was successful."
+      "reauth_successful": "Reauthentication was successful.",
+      "not_wiser_knx": "The device did not answer like a Wiser for KNX / KNX IoT controller. Check the address, or add it manually."
     }
   },
   "options": {

@@ -27,6 +27,7 @@ custom_components/wiser_for_knx/
   api.py            WiserKnxClient: discovery, auth, locations/functions/datapoints, writes, backup download
   backup.py         WiserKnxBackupManager (lock, schedule, store atomically, prune) + HA pre/post backup hooks
   backup_utils.py   pure helpers (password rule, filenames, list/prune) – no HA imports, unit-tested
+  identity.py       pure helpers for the stable unique id (MAC/serial) and v1 id migration – no HA imports, unit-tested
   button.py         "Create backup" button (config category)
   config_flow.py    user + zeroconf/dhcp credentials steps, then a "backup" step; options flow
   const.py          constants, PLATFORMS, KNX function URNs, backup endpoints

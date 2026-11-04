@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .identity import stable_id_from_device_info
+
 
 def _percent(used: float, total: float) -> float | None:
     if not total:
@@ -26,6 +28,7 @@ def parse_health(device_info: dict[str, Any], status: dict[str, Any]) -> dict[st
     mem_percent = _percent(memory.get("used", 0), memory.get("total", 0)) if memory else None
 
     return {
+        "device_id": stable_id_from_device_info(device_info),
         "firmware": device_info.get("fwVersion"),
         "hardware": device_info.get("hwVersion"),
         "architecture": device_info.get("architecture"),

@@ -114,8 +114,32 @@ class WiserKnxClient:
             "info": self.discovered_info,
         }
 
+    async def probe(self) -> dict[str, Any] | None:
+        """Unauthenticated check for a KNX IoT endpoint; return its /.well-known/knx data or None."""
+        session = await self._get_session()
+        try:
+            async with session.get(
+                f"{self.base_url}/.well-known/knx",
+                headers={"Accept": "application/json, */*"},
+                timeout=aiohttp.ClientTimeout(total=5),
+                ssl=self.verify_ssl,
+            ) as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            _LOGGER.debug("KNX probe of %s failed: %s", self.base_url, err)
+            return None
+        if not isinstance(data, dict) or not isinstance(data.get("api"), dict):
+            return None
+        return data
+
+    async def async_get_device_info(self) -> dict[str, Any]:
+        """Return the management API deviceInfo payload (requires authentication)."""
+        return await self._async_mgmt_get("/custom/deviceInfo")
+
     async def authenticate(self) -> bool:
-        """Verify authentication against locations or installations endpoint."""
+        """Verify credentials; False only for 401/403, connection problems raise."""
         session = await self._get_session()
         auth = self._get_auth()
         headers = self._get_headers()
