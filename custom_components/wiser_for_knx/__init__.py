@@ -38,6 +38,7 @@ from .const import (
     DEFAULT_SSL,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
+    ISSUE_INSECURE_HTTP,
     ISSUE_INSECURE_TLS,
     PLATFORMS,
     SERVICE_CREATE_BACKUP,
@@ -103,6 +104,49 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+def _sync_transport_issues(
+    hass: HomeAssistant,
+    entry_id: str,
+    host: str,
+    ssl: bool,
+    verify_ssl: bool,
+    fingerprint: str | None,
+) -> None:
+    """Raise or clear the repair issue for the entry's transport.
+
+    The two issues are mutually exclusive: the TLS one needs ssl on, the HTTP one needs it
+    off, so at most one is ever active.
+    """
+    tls_id = ISSUE_INSECURE_TLS.format(entry_id=entry_id)
+    http_id = ISSUE_INSECURE_HTTP.format(entry_id=entry_id)
+    if ssl and not verify_ssl and not fingerprint:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            tls_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="insecure_tls",
+            translation_placeholders={"host": host},
+            learn_more_url="https://github.com/bartosekpetr/HomelYnk-HA#tls-certificate-verification",
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, tls_id)
+    if not ssl:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            http_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="insecure_http",
+            translation_placeholders={"host": host},
+            learn_more_url="https://github.com/bartosekpetr/HomelYnk-HA#tls-certificate-verification",
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, http_id)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Wiser for KNX from a config entry."""
     hass.data.setdefault(DOMAIN, {})
@@ -135,20 +179,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         session=session,
     )
 
-    issue_id = ISSUE_INSECURE_TLS.format(entry_id=entry.entry_id)
-    if ssl and not verify_ssl and not fingerprint:
-        ir.async_create_issue(
-            hass,
-            DOMAIN,
-            issue_id,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key="insecure_tls",
-            translation_placeholders={"host": host},
-            learn_more_url="https://github.com/bartosekpetr/HomelYnk-HA#tls-certificate-verification",
-        )
-    else:
-        ir.async_delete_issue(hass, DOMAIN, issue_id)
+    _sync_transport_issues(hass, entry.entry_id, host, ssl, verify_ssl, fingerprint)
 
     if entry.data.get(CONF_API_BASE):
         client.api_base = entry.data[CONF_API_BASE]
@@ -272,10 +303,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Drop the insecure-TLS repair issue when its entry is deleted."""
-    ir.async_delete_issue(
-        hass, DOMAIN, ISSUE_INSECURE_TLS.format(entry_id=entry.entry_id)
-    )
+    """Drop the insecure-transport repair issues when their entry is deleted."""
+    for template in (ISSUE_INSECURE_TLS, ISSUE_INSECURE_HTTP):
+        ir.async_delete_issue(hass, DOMAIN, template.format(entry_id=entry.entry_id))
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

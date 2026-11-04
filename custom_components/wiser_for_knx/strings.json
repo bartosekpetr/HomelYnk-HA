@@ -7,12 +7,13 @@
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
-          "ssl": "Use SSL / HTTPS",
+          "plain_http": "Use plain HTTP instead of HTTPS (insecure — the controller password is sent unencrypted)",
           "username": "Username",
           "password": "Password",
           "skip_verify": "Skip certificate verification (insecure)"
         },
         "data_description": {
+          "plain_http": "Leave off. With this on, the controller username and password, and the backup password, are sent unencrypted and can be read by anyone on your network. Only turn it on if the controller cannot serve HTTPS.",
           "skip_verify": "Leave off. Self-signed controllers are handled by confirming the certificate fingerprint in the next step. Turning this on sends your credentials without checking who answers."
         }
       },
@@ -22,12 +23,13 @@
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
-          "ssl": "Use SSL / HTTPS",
+          "plain_http": "Use plain HTTP instead of HTTPS (insecure — the controller password is sent unencrypted)",
           "username": "Username",
           "password": "Password",
           "skip_verify": "Skip certificate verification (insecure)"
         },
         "data_description": {
+          "plain_http": "Leave off. With this on, the controller username and password, and the backup password, are sent unencrypted and can be read by anyone on your network. Only turn it on if the controller cannot serve HTTPS.",
           "skip_verify": "Leave off. Self-signed controllers are handled by confirming the certificate fingerprint in the next step. Turning this on sends your credentials without checking who answers."
         }
       },
@@ -85,9 +87,11 @@
           "backup_password": "Backup password",
           "backup_interval_hours": "Automatic backup interval (hours, 0 = off)",
           "backup_keep": "Number of backups to keep",
+          "plain_http": "Use plain HTTP instead of HTTPS (insecure — the controller password is sent unencrypted)",
           "skip_verify": "Skip certificate verification (insecure)"
         },
         "data_description": {
+          "plain_http": "Leave off. With this on, the controller username and password, and the backup password, are sent unencrypted and can be read by anyone on your network. Only turn it on if the controller cannot serve HTTPS. Changing this does not change the port; adjust the port by re-adding the controller if it differs.",
           "skip_verify": "Off is recommended. Turning it on removes any trusted certificate fingerprint. Turning it off again re-checks the certificate and asks you to confirm its fingerprint if it is self-signed."
         }
       }
@@ -106,6 +110,10 @@
     "insecure_tls": {
       "title": "Certificate verification is disabled",
       "description": "The connection to the controller at {host} does not verify its TLS certificate, so the controller password is sent to whoever answers on that address. Open the integration, choose Configure, turn off \"Skip certificate verification (insecure)\", and confirm the controller's certificate fingerprint when asked."
+    },
+    "insecure_http": {
+      "title": "Connection to the controller is not encrypted",
+      "description": "The connection to the controller at {host} uses plain HTTP, so the controller username and password are sent unencrypted on every update, and the backup password is sent unencrypted when a backup is made. Open the integration, choose Configure, and turn off \"Use plain HTTP instead of HTTPS (insecure — the controller password is sent unencrypted)\". If the controller cannot serve HTTPS, this notice stays."
     }
   }
 }

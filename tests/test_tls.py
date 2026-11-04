@@ -15,7 +15,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from aiohttp import web
 
-from custom_components.wiser_for_knx import async_migrate_entry, config_flow
+from custom_components.wiser_for_knx import (
+    _sync_transport_issues,
+    async_migrate_entry,
+    async_remove_entry,
+    config_flow,
+)
 from custom_components.wiser_for_knx.api import (
     WiserKnxCertificateError,
     WiserKnxClient,
@@ -26,7 +31,11 @@ from custom_components.wiser_for_knx.const import (
     CONF_CERT_FINGERPRINT,
     CONF_SKIP_VERIFY,
     CONF_VERIFY_SSL,
+    DEFAULT_PORT,
+    DEFAULT_SSL,
     DEFAULT_VERIFY_SSL,
+    ISSUE_INSECURE_HTTP,
+    ISSUE_INSECURE_TLS,
 )
 from custom_components.wiser_for_knx.tls import (
     format_fingerprint,
@@ -252,3 +261,157 @@ def test_migration_preserves_explicit_setting():
     hass = MagicMock()
     assert asyncio.run(async_migrate_entry(hass, entry)) is True
     hass.config_entries.async_update_entry.assert_called_once_with(entry, version=3)
+
+
+# --- plain HTTP (ssl off) -----------------------------------------------------------------
+
+
+class _FakeIssues:
+    """Stands in for the issue registry: tracks which issue ids are currently active."""
+
+    IssueSeverity = SimpleNamespace(WARNING="warning")
+
+    def __init__(self):
+        self.active = {}
+
+    def async_create_issue(self, hass, domain, issue_id, **kwargs):
+        self.active[issue_id] = kwargs
+
+    def async_delete_issue(self, hass, domain, issue_id):
+        self.active.pop(issue_id, None)
+
+
+def _sync(issues, ssl, verify_ssl=True, fingerprint=None):
+    with patch("custom_components.wiser_for_knx.ir", issues):
+        _sync_transport_issues(MagicMock(), "e1", "h", ssl, verify_ssl, fingerprint)
+
+
+def test_new_entry_form_defaults_to_https_even_after_plain_http_discovery():
+    flow = WiserKnxConfigFlow()
+    # Discovery that only saw the controller answer on port 80
+    flow._discovered_port, flow._discovered_ssl = 80, False
+    assert flow._prefill_port() == DEFAULT_PORT
+    assert DEFAULT_SSL is True
+    # Without the plain_http field the flow connects over HTTPS
+    flow2 = _flow()
+    seen = []
+
+    def fake_client(host, port, ssl, *rest):
+        seen.append(ssl)
+        client = MagicMock(ssl=ssl)
+        client.async_check_tls = AsyncMock()
+        client.discover_endpoints = AsyncMock(return_value={"api_base": "/a"})
+        client.authenticate = AsyncMock(return_value=True)
+        client.async_get_device_info = AsyncMock(return_value={})
+        return client
+
+    flow2._client = fake_client
+    plain_input = {k: v for k, v in _INPUT.items() if k != config_flow.CONF_SSL}
+    assert asyncio.run(flow2._async_try_connect(plain_input)) is None
+    assert seen == [True]
+    assert flow2._entry_data[config_flow.CONF_SSL] is True
+
+
+def test_plain_http_is_an_explicit_opt_in_and_stays_possible():
+    flow = _flow()
+    seen = []
+
+    def fake_client(host, port, ssl, *rest):
+        seen.append(ssl)
+        client = MagicMock(ssl=ssl)
+        client.discover_endpoints = AsyncMock(return_value={"api_base": "/a"})
+        client.authenticate = AsyncMock(return_value=True)
+        client.async_get_device_info = AsyncMock(return_value={})
+        return client
+
+    flow._client = fake_client
+    data = {**_INPUT, config_flow.CONF_PLAIN_HTTP: True}
+    assert asyncio.run(flow._async_try_connect(data)) is None
+    assert seen == [False]
+    assert flow._entry_data[config_flow.CONF_SSL] is False
+
+
+def test_discovery_probe_prefers_https_when_both_answer():
+    flow = _flow()
+    order = []
+
+    def fake_client(host, port, ssl, *rest, **kw):
+        client = MagicMock()
+
+        async def probe():
+            order.append((port, ssl))
+            return {"api": {}} if (port, ssl) in {(80, False), (443, True)} else None
+
+        client.probe = probe
+        return client
+
+    flow._client = fake_client
+    assert asyncio.run(flow._async_probe_discovered("h", 80)) == (443, True)
+
+
+def test_http_issue_appears_when_ssl_off_and_clears_when_on():
+    issues = _FakeIssues()
+    _sync(issues, ssl=False)
+    assert set(issues.active) == {ISSUE_INSECURE_HTTP.format(entry_id="e1")}
+    assert (
+        issues.active[ISSUE_INSECURE_HTTP.format(entry_id="e1")]["is_fixable"] is False
+    )
+    _sync(issues, ssl=True)
+    assert issues.active == {}
+
+
+def test_tls_and_http_issues_are_never_active_together():
+    issues = _FakeIssues()
+    for use_https in (True, False):
+        for verify_ssl in (True, False):
+            for fingerprint in (None, "ab"):
+                _sync(issues, use_https, verify_ssl, fingerprint)
+                assert len(issues.active) <= 1
+    _sync(issues, ssl=True, verify_ssl=False)
+    assert set(issues.active) == {ISSUE_INSECURE_TLS.format(entry_id="e1")}
+    # Turning ssl off swaps the TLS notice for the HTTP one, it does not add to it
+    _sync(issues, ssl=False, verify_ssl=False)
+    assert set(issues.active) == {ISSUE_INSECURE_HTTP.format(entry_id="e1")}
+
+
+def test_removing_an_entry_clears_both_issues():
+    issues = _FakeIssues()
+    _sync(issues, ssl=False)
+    issues.active[ISSUE_INSECURE_TLS.format(entry_id="e1")] = {}
+    with patch("custom_components.wiser_for_knx.ir", issues):
+        asyncio.run(async_remove_entry(MagicMock(), _entry({"host": "h"})))
+    assert issues.active == {}
+
+
+def test_migration_leaves_a_stored_plain_http_choice_alone():
+    # No ssl rewrite: a missing key already resolves to the unchanged default (HTTPS), and a
+    # stored False must survive the upgrade untouched.
+    hass = MagicMock()
+    entry = _entry({"host": "h", config_flow.CONF_SSL: False, CONF_VERIFY_SSL: True})
+    assert asyncio.run(async_migrate_entry(hass, entry)) is True
+    hass.config_entries.async_update_entry.assert_called_once_with(entry, version=3)
+    hass = MagicMock()
+    entry = _entry({"host": "h", config_flow.CONF_SSL: False})
+    assert asyncio.run(async_migrate_entry(hass, entry)) is True
+    (_, kwargs) = hass.config_entries.async_update_entry.call_args
+    assert kwargs["data"][config_flow.CONF_SSL] is False
+
+
+def test_options_flow_switches_transport_without_touching_other_data():
+    entry = SimpleNamespace(
+        data={"host": "h", config_flow.CONF_SSL: True, CONF_VERIFY_SSL: True}
+    )
+    handler = config_flow.WiserKnxOptionsFlowHandler()
+    handler.hass = MagicMock()
+    handler.hass.config_entries.async_update_entry = MagicMock()
+    with patch.object(
+        config_flow.WiserKnxOptionsFlowHandler,
+        "config_entry",
+        entry,
+        create=True,
+    ):
+        handler._apply_transport_choice(plain=True, skip=False)
+        handler.hass.config_entries.async_update_entry.assert_called_once_with(
+            entry,
+            data={"host": "h", config_flow.CONF_SSL: False, CONF_VERIFY_SSL: True},
+        )

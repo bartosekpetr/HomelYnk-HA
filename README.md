@@ -96,6 +96,8 @@ The controller's certificate is verified by default. Controllers usually use a s
 
 Under **Configure** you can enable *Skip certificate verification (insecure)*. While it is on, Home Assistant shows a repair notice. Entries created by earlier versions keep their existing (unverified) setting after the upgrade and show that notice until you turn the option off.
 
+The connection uses HTTPS by default. *Use plain HTTP instead of HTTPS (insecure)* is available during setup and under **Configure** for controllers that cannot serve HTTPS; while it is on, the controller password and the backup password are sent unencrypted and Home Assistant shows a repair notice.
+
 ## 💾 Controller Backups
 
 The integration can download your controller's configuration through its management API (`/api/management/v1`) using the same credentials. Two ZIP archives are stored per backup: the **system** configuration and the **project** (SCADA) configuration. Both are encrypted with a password you choose.

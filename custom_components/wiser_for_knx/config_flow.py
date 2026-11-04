@@ -38,6 +38,7 @@ from .const import (
     CONF_BACKUP_NOW,
     CONF_BACKUP_PASSWORD,
     CONF_CERT_FINGERPRINT,
+    CONF_PLAIN_HTTP,
     CONF_SCAN_INTERVAL,
     CONF_SKIP_VERIFY,
     CONF_VERIFY_SSL,
@@ -159,7 +160,14 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, host: str, port: int
     ) -> tuple[int, bool] | None:
         """Find the (port, ssl) at which `host` answers /.well-known/knx, or None."""
-        candidates = [(port, port != 80), (DEFAULT_PORT, True), (80, False)]
+        # HTTPS is tried before plain HTTP so a controller that serves both is never
+        # reported as plain-HTTP only.
+        candidates = [
+            (port, True),
+            (DEFAULT_PORT, True),
+            (port, port == 80),
+            (80, False),
+        ]
         for cand_port, cand_ssl in dict.fromkeys(candidates):
             # Discovery probe only: it sends no credentials and its answer is not used for
             # anything but "does this look like a KNX IoT controller", so a self-signed
@@ -173,7 +181,10 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Connect and authenticate; fill `_entry_data`. Return an error key or None."""
         host = user_input[CONF_HOST].strip()
         port = user_input.get(CONF_PORT, DEFAULT_PORT)
-        ssl = user_input.get(CONF_SSL, DEFAULT_SSL)
+        if CONF_PLAIN_HTTP in user_input:
+            ssl = not user_input[CONF_PLAIN_HTTP]
+        else:
+            ssl = user_input.get(CONF_SSL, DEFAULT_SSL)
         verify_ssl = not user_input.get(CONF_SKIP_VERIFY, False)
         # Pinning and skipping verification are mutually exclusive; skipping wins by being explicit
         fingerprint = self._trusted_fingerprint if verify_ssl else None
@@ -239,14 +250,20 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._entry_data[CONF_CERT_FINGERPRINT] = fingerprint
         return None
 
+    def _prefill_port(self) -> int:
+        """Port to suggest: the discovered one, unless it only answered plain HTTP."""
+        if self._discovered_ssl and self._discovered_port:
+            return self._discovered_port
+        return DEFAULT_PORT
+
     def _credentials_schema(self) -> vol.Schema:
         return vol.Schema(
             {
                 vol.Required(CONF_HOST, default=self._discovered_host or ""): str,
-                vol.Required(
-                    CONF_PORT, default=self._discovered_port or DEFAULT_PORT
-                ): int,
-                vol.Optional(CONF_SSL, default=self._discovered_ssl): bool,
+                vol.Required(CONF_PORT, default=self._prefill_port()): int,
+                # Plain HTTP is never pre-selected, not even when discovery only saw the
+                # controller answer on it: the user has to ask for it.
+                vol.Optional(CONF_PLAIN_HTTP, default=False): bool,
                 vol.Optional(CONF_SKIP_VERIFY, default=not DEFAULT_VERIFY_SSL): bool,
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
                 vol.Optional(CONF_PASSWORD, default=""): str,
@@ -519,7 +536,8 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
             if not errors:
                 data = {**user_input}
                 skip = data.pop(CONF_SKIP_VERIFY, False)
-                self._apply_tls_choice(skip)
+                plain = data.pop(CONF_PLAIN_HTTP, False)
+                self._apply_transport_choice(plain, skip)
                 if password:
                     data[CONF_BACKUP_PASSWORD] = password
                 return self.async_create_entry(title="", data=data)
@@ -527,14 +545,18 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self._show_form({})
 
-    def _apply_tls_choice(self, skip: bool) -> None:
-        """Store the TLS choice. Skipping drops any pin: the two modes are exclusive."""
+    def _apply_transport_choice(self, plain: bool, skip: bool) -> None:
+        """Store the transport choices. Skipping drops any pin: the two modes are exclusive."""
         entry = self.config_entry
-        if skip == (not entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)):
+        data = dict(entry.data)
+        if plain == entry.data.get(CONF_SSL, DEFAULT_SSL):
+            data[CONF_SSL] = not plain
+        if skip != (not entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)):
+            data[CONF_VERIFY_SSL] = not skip
+            if skip:
+                data.pop(CONF_CERT_FINGERPRINT, None)
+        if data == entry.data:
             return
-        data = {**entry.data, CONF_VERIFY_SSL: not skip}
-        if skip:
-            data.pop(CONF_CERT_FINGERPRINT, None)
         # Turning verification back on needs no probe here: an untrusted certificate makes
         # the reloaded entry start reauth, which offers the fingerprint confirmation.
         self.hass.config_entries.async_update_entry(entry, data=data)
@@ -547,6 +569,10 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SCAN_INTERVAL,
                     default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                 ): vol.All(int, vol.Range(min=2, max=120)),
+                vol.Optional(
+                    CONF_PLAIN_HTTP,
+                    default=not self.config_entry.data.get(CONF_SSL, DEFAULT_SSL),
+                ): bool,
                 vol.Optional(
                     CONF_SKIP_VERIFY,
                     default=not self.config_entry.data.get(

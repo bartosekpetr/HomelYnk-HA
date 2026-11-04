@@ -9,6 +9,7 @@ CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_SSL = "ssl"
 CONF_VERIFY_SSL = "verify_ssl"
+CONF_PLAIN_HTTP = "plain_http"  # form-only inverse of ssl
 CONF_CERT_FINGERPRINT = "certificate_fingerprint"  # pinned SHA-256, hex
 CONF_SKIP_VERIFY = "skip_verify"  # form-only inverse of verify_ssl
 CONF_USERNAME = "username"
@@ -25,6 +26,7 @@ DEFAULT_USERNAME = "admin"
 DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
 
 ISSUE_INSECURE_TLS = "insecure_tls_{entry_id}"
+ISSUE_INSECURE_HTTP = "insecure_http_{entry_id}"
 
 # Management API (backups, device info) and backup settings
 MGMT_API_BASE = "/api/management/v1"
