@@ -25,10 +25,17 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .api import WiserKnxAuthError, WiserKnxClient, WiserKnxConnectionError
+from .api import (
+    WiserKnxAuthError,
+    WiserKnxCertificateError,
+    WiserKnxClient,
+    WiserKnxConnectionError,
+)
 from .backup_utils import is_valid_backup_password
 from .const import (
     CONF_API_BASE,
+    CONF_CERT_FINGERPRINT,
+    CONF_SKIP_VERIFY,
     CONF_BACKUP_INTERVAL,
     CONF_BACKUP_KEEP,
     CONF_BACKUP_NOW,
@@ -46,6 +53,7 @@ from .const import (
     DEFAULT_VERIFY_SSL,
     DOMAIN,
 )
+from .tls import async_fetch_fingerprint, format_fingerprint
 from .identity import normalize_mac, stable_id_from_device_info
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,7 +62,7 @@ _LOGGER = logging.getLogger(__name__)
 class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Wiser for KNX."""
 
-    VERSION = 2
+    VERSION = 3
 
     def __init__(self) -> None:
         """Initialize config flow."""
@@ -65,6 +73,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._api_base: str = DEFAULT_API_BASE
         self._entry_title: str = ""
         self._entry_data: dict[str, Any] = {}
+        self._trusted_fingerprint: str | None = None
+        self._pending_input: dict[str, Any] = {}
+        self._pending_fingerprint: str | None = None
 
     async def async_step_backup(
         self, user_input: dict[str, Any] | None = None
@@ -120,15 +131,20 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         verify_ssl: bool,
         username: str | None = None,
         password: str = "",
+        fingerprint: str | None = None,
     ) -> WiserKnxClient:
+        # A pinned certificate gets its own connector (built by the client); see __init__.py
         return WiserKnxClient(
             host=host,
             port=port,
             ssl=ssl,
             verify_ssl=verify_ssl,
+            fingerprint=fingerprint,
             username=username,
             password=password,
-            session=async_get_clientsession(self.hass, verify_ssl=verify_ssl),
+            session=None
+            if fingerprint
+            else async_get_clientsession(self.hass, verify_ssl=verify_ssl),
         )
 
     def _adopt_legacy_entry(self, host: str, unique_id: str | None) -> None:
@@ -146,7 +162,10 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Find the (port, ssl) at which `host` answers /.well-known/knx, or None."""
         candidates = [(port, port != 80), (DEFAULT_PORT, True), (80, False)]
         for cand_port, cand_ssl in dict.fromkeys(candidates):
-            client = self._client(host, cand_port, cand_ssl, DEFAULT_VERIFY_SSL)
+            # Discovery probe only: it sends no credentials and its answer is not used for
+            # anything but "does this look like a KNX IoT controller", so a self-signed
+            # certificate must not hide the discovery card. Verification happens on submit.
+            client = self._client(host, cand_port, cand_ssl, False)
             if await client.probe() is not None:
                 return cand_port, cand_ssl
         return None
@@ -156,12 +175,19 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         host = user_input[CONF_HOST].strip()
         port = user_input.get(CONF_PORT, DEFAULT_PORT)
         ssl = user_input.get(CONF_SSL, DEFAULT_SSL)
-        verify_ssl = user_input.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        verify_ssl = not user_input.get(CONF_SKIP_VERIFY, False)
+        # Pinning and skipping verification are mutually exclusive; skipping wins by being explicit
+        fingerprint = self._trusted_fingerprint if verify_ssl else None
         username = user_input.get(CONF_USERNAME, "").strip() or None
         password = user_input.get(CONF_PASSWORD, "")
-        client = self._client(host, port, ssl, verify_ssl, username, password)
+        client = self._client(
+            host, port, ssl, verify_ssl, username, password, fingerprint
+        )
 
         try:
+            # Unauthenticated first: credentials are never sent over an untrusted channel
+            if ssl and verify_ssl and not fingerprint:
+                await client.async_check_tls()
             disc = await client.discover_endpoints()
             api_base = disc.get("api_base", DEFAULT_API_BASE)
             if not await client.authenticate():
@@ -175,6 +201,16 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 device_id = None
         except WiserKnxAuthError:
             return "invalid_auth"
+        except WiserKnxCertificateError as err:
+            _LOGGER.debug("Untrusted certificate at %s: %s", host, err)
+            if fingerprint:
+                return "fingerprint_mismatch"
+            found = await async_fetch_fingerprint(self.hass, host, port)
+            if found is None:
+                return "cannot_connect"
+            self._pending_input = dict(user_input)
+            self._pending_fingerprint = found
+            return "untrusted_certificate"
         except WiserKnxConnectionError as err:
             _LOGGER.debug(
                 "Cannot connect to Wiser for KNX at %s: %s", host, err, exc_info=True
@@ -200,6 +236,8 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             CONF_PASSWORD: password,
             CONF_API_BASE: api_base,
         }
+        if fingerprint:
+            self._entry_data[CONF_CERT_FINGERPRINT] = fingerprint
         return None
 
     def _credentials_schema(self) -> vol.Schema:
@@ -210,7 +248,7 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_PORT, default=self._discovered_port or DEFAULT_PORT
                 ): int,
                 vol.Optional(CONF_SSL, default=self._discovered_ssl): bool,
-                vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
+                vol.Optional(CONF_SKIP_VERIFY, default=not DEFAULT_VERIFY_SSL): bool,
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
                 vol.Optional(CONF_PASSWORD, default=""): str,
             }
@@ -230,10 +268,36 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if error is None:
                 self._entry_title = f"Wiser for KNX ({host})"
                 return await self.async_step_backup()
+            if error == "untrusted_certificate":
+                self._entry_title = f"Wiser for KNX ({host})"
+                return await self.async_step_trust_certificate()
             errors["base"] = error
 
         return self.async_show_form(
             step_id="user", data_schema=self._credentials_schema(), errors=errors
+        )
+
+    async def async_step_trust_certificate(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Ask the user to trust the controller's self-signed certificate (first use)."""
+        pending = self._pending_input
+        if user_input is not None:
+            # Re-run the whole connection with the certificate pinned; this also proves the
+            # fingerprint the user saw is the one the controller presents now.
+            self._trusted_fingerprint = self._pending_fingerprint
+            error = await self._async_try_connect(pending)
+            if error is None:
+                return await self.async_step_backup()
+            self._trusted_fingerprint = None
+            return self.async_abort(reason=error)
+
+        return self.async_show_form(
+            step_id="trust_certificate",
+            description_placeholders={
+                "host": pending[CONF_HOST].strip(),
+                "fingerprint": format_fingerprint(self._pending_fingerprint or ""),
+            },
         )
 
     async def async_step_zeroconf(self, discovery_info: Any) -> FlowResult:
@@ -304,6 +368,11 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     f"Wiser for KNX ({self._discovered_hostname or host})"
                 )
                 return await self.async_step_backup()
+            if error == "untrusted_certificate":
+                self._entry_title = (
+                    f"Wiser for KNX ({self._discovered_hostname or host})"
+                )
+                return await self.async_step_trust_certificate()
             errors["base"] = error
 
         return self.async_show_form(
@@ -316,8 +385,67 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
-        """Start reauthentication after the controller rejected the stored credentials."""
+        """Start reauthentication: untrusted certificate first, then credentials."""
+        entry = self._get_reauth_entry()
+        client = self._entry_client(entry)
+        if client.ssl and (client.fingerprint or client.verify_ssl):
+            try:
+                await client.async_check_tls()
+            except WiserKnxCertificateError:
+                found = await async_fetch_fingerprint(
+                    self.hass,
+                    entry.data[CONF_HOST],
+                    entry.data.get(CONF_PORT, DEFAULT_PORT),
+                )
+                if found is not None:
+                    self._pending_fingerprint = found
+                    return await self.async_step_reauth_certificate()
+            except WiserKnxConnectionError:
+                pass  # unreachable is not a trust problem; credentials step reports it
         return await self.async_step_reauth_confirm()
+
+    def _entry_client(
+        self,
+        entry: config_entries.ConfigEntry,
+        username: str | None = None,
+        password: str = "",
+    ) -> WiserKnxClient:
+        """Build a client from a stored entry (with its pinned fingerprint, if any)."""
+        client = self._client(
+            entry.data[CONF_HOST],
+            entry.data.get(CONF_PORT, DEFAULT_PORT),
+            entry.data.get(CONF_SSL, DEFAULT_SSL),
+            entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL),
+            username,
+            password,
+            entry.data.get(CONF_CERT_FINGERPRINT),
+        )
+        if entry.data.get(CONF_API_BASE):
+            client.api_base = entry.data[CONF_API_BASE]
+        return client
+
+    async def async_step_reauth_certificate(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """The certificate changed or stopped verifying: let the user decide, never auto-trust."""
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            return self.async_update_reload_and_abort(
+                entry,
+                data_updates={
+                    CONF_CERT_FINGERPRINT: self._pending_fingerprint,
+                    CONF_VERIFY_SSL: True,
+                },
+            )
+        old = entry.data.get(CONF_CERT_FINGERPRINT)
+        return self.async_show_form(
+            step_id="reauth_certificate",
+            description_placeholders={
+                "host": entry.data[CONF_HOST],
+                "fingerprint": format_fingerprint(self._pending_fingerprint or ""),
+                "previous": format_fingerprint(old) if old else "none (system CA)",
+            },
+        )
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
@@ -329,19 +457,7 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             username = user_input.get(CONF_USERNAME, "").strip() or None
             password = user_input.get(CONF_PASSWORD, "")
-            verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
-
-            client = WiserKnxClient(
-                host=entry.data[CONF_HOST],
-                port=entry.data.get(CONF_PORT, DEFAULT_PORT),
-                ssl=entry.data.get(CONF_SSL, DEFAULT_SSL),
-                verify_ssl=verify_ssl,
-                username=username,
-                password=password,
-                session=async_get_clientsession(self.hass, verify_ssl=verify_ssl),
-            )
-            if entry.data.get(CONF_API_BASE):
-                client.api_base = entry.data[CONF_API_BASE]
+            client = self._entry_client(entry, username, password)
 
             try:
                 authenticated = await client.authenticate()
@@ -403,12 +519,26 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
                 errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
             if not errors:
                 data = {**user_input}
+                skip = data.pop(CONF_SKIP_VERIFY, False)
+                self._apply_tls_choice(skip)
                 if password:
                     data[CONF_BACKUP_PASSWORD] = password
                 return self.async_create_entry(title="", data=data)
             return self._show_form(errors)
 
         return self._show_form({})
+
+    def _apply_tls_choice(self, skip: bool) -> None:
+        """Store the TLS choice. Skipping drops any pin: the two modes are exclusive."""
+        entry = self.config_entry
+        if skip == (not entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)):
+            return
+        data = {**entry.data, CONF_VERIFY_SSL: not skip}
+        if skip:
+            data.pop(CONF_CERT_FINGERPRINT, None)
+        # Turning verification back on needs no probe here: an untrusted certificate makes
+        # the reloaded entry start reauth, which offers the fingerprint confirmation.
+        self.hass.config_entries.async_update_entry(entry, data=data)
 
     def _show_form(self, errors: dict[str, str]) -> FlowResult:
         options = self.config_entry.options
@@ -418,6 +548,12 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SCAN_INTERVAL,
                     default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                 ): vol.All(int, vol.Range(min=2, max=120)),
+                vol.Optional(
+                    CONF_SKIP_VERIFY,
+                    default=not self.config_entry.data.get(
+                        CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL
+                    ),
+                ): bool,
                 vol.Optional(CONF_BACKUP_PASSWORD): TextSelector(
                     TextSelectorConfig(type=TextSelectorType.PASSWORD)
                 ),

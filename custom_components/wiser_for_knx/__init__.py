@@ -17,12 +17,14 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import WiserKnxClient
 from .backup import WiserKnxBackupManager
 from .const import (
     CONF_API_BASE,
+    CONF_CERT_FINGERPRINT,
     CONF_BACKUP_INTERVAL,
     CONF_BACKUP_KEEP,
     CONF_BACKUP_PASSWORD,
@@ -36,6 +38,7 @@ from .const import (
     DEFAULT_VERIFY_SSL,
     DATA_INITIAL_BACKUP,
     DOMAIN,
+    ISSUE_INSECURE_TLS,
     PLATFORMS,
     SERVICE_CREATE_BACKUP,
 )
@@ -68,13 +71,13 @@ def _remove_unsupported_entities(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Replace IP-based unique ids (v1) with stable ones.
+    """Upgrade config entries: v1 -> v2 stable unique ids, v2 -> v3 explicit TLS setting.
 
     Entities and devices are keyed by the config entry id, so they are untouched. A legacy
     MAC-based id is rewritten to the plain MAC; an IP-based id is cleared and re-learned from
     the controller (or from discovery) once it is reachable.
     """
-    if entry.version > 2:
+    if entry.version > 3:
         return False
     if entry.version == 1:
         new_id = stable_id_from_legacy(entry.unique_id)
@@ -86,6 +89,17 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             new_id = None
         hass.config_entries.async_update_entry(entry, unique_id=new_id, version=2)
         _LOGGER.debug("Migrated %s to version 2 (unique id %s)", entry.entry_id, new_id)
+    if entry.version == 2:
+        # The default for a missing verify_ssl changed from False to True. Pin the value the
+        # entry has always effectively used so a working self-signed install keeps working;
+        # setup then raises a repair issue asking the user to move to a verified setup.
+        if CONF_VERIFY_SSL not in entry.data:
+            hass.config_entries.async_update_entry(
+                entry, data={**entry.data, CONF_VERIFY_SSL: False}, version=3
+            )
+        else:
+            hass.config_entries.async_update_entry(entry, version=3)
+        _LOGGER.debug("Migrated %s to version 3 (explicit verify_ssl)", entry.entry_id)
     return True
 
 
@@ -104,16 +118,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
     )
 
-    session = async_get_clientsession(hass, verify_ssl=verify_ssl)
+    fingerprint = entry.data.get(CONF_CERT_FINGERPRINT)
+    # A pinned certificate needs its own connector, which the client builds itself; otherwise
+    # the shared HA session already carries the right verify/no-verify TLS context.
+    session = (
+        None if fingerprint else async_get_clientsession(hass, verify_ssl=verify_ssl)
+    )
     client = WiserKnxClient(
         host=host,
         port=port,
         ssl=ssl,
         verify_ssl=verify_ssl,
+        fingerprint=fingerprint,
         username=username,
         password=password,
         session=session,
     )
+
+    issue_id = ISSUE_INSECURE_TLS.format(entry_id=entry.entry_id)
+    if ssl and not verify_ssl and not fingerprint:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="insecure_tls",
+            translation_placeholders={"host": host},
+            learn_more_url="https://github.com/bartosekpetr/HomelYnk-HA#tls-certificate-verification",
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
 
     if entry.data.get(CONF_API_BASE):
         client.api_base = entry.data[CONF_API_BASE]
@@ -233,6 +268,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.services.async_remove(DOMAIN, SERVICE_CREATE_BACKUP)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop the insecure-TLS repair issue when its entry is deleted."""
+    ir.async_delete_issue(
+        hass, DOMAIN, ISSUE_INSECURE_TLS.format(entry_id=entry.entry_id)
+    )
 
 
 async def async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

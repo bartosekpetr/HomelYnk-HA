@@ -8,9 +8,12 @@
           "host": "Host / IP Address",
           "port": "Port",
           "ssl": "Use SSL / HTTPS",
-          "verify_ssl": "Verify SSL certificate (disable for self-signed certificates)",
           "username": "Username",
-          "password": "Password"
+          "password": "Password",
+          "skip_verify": "Skip certificate verification (insecure)"
+        },
+        "data_description": {
+          "skip_verify": "Leave off. Self-signed controllers are handled by confirming the certificate fingerprint in the next step. Turning this on sends your credentials without checking who answers."
         }
       },
       "credentials": {
@@ -20,9 +23,12 @@
           "host": "Host / IP Address",
           "port": "Port",
           "ssl": "Use SSL / HTTPS",
-          "verify_ssl": "Verify SSL certificate (disable for self-signed certificates)",
           "username": "Username",
-          "password": "Password"
+          "password": "Password",
+          "skip_verify": "Skip certificate verification (insecure)"
+        },
+        "data_description": {
+          "skip_verify": "Leave off. Self-signed controllers are handled by confirming the certificate fingerprint in the next step. Turning this on sends your credentials without checking who answers."
         }
       },
       "reauth_confirm": {
@@ -42,18 +48,31 @@
           "backup_keep": "Number of backups to keep",
           "backup_now": "Create a backup right away"
         }
+      },
+      "trust_certificate": {
+        "title": "Trust this controller's certificate?",
+        "description": "The controller at {host} uses a certificate that Home Assistant cannot verify (normal for a self-signed controller).\n\nSHA-256 fingerprint:\n`{fingerprint}`\n\nCompare it with the fingerprint shown by the controller. Submitting trusts only this exact certificate for this controller: Home Assistant will refuse any other certificate and ask you again. If you cannot confirm the fingerprint, someone on your network may be impersonating the controller and could capture your password; cancel in that case."
+      },
+      "reauth_certificate": {
+        "title": "Controller certificate changed",
+        "description": "The certificate presented by {host} is not trusted.\n\nNew SHA-256 fingerprint:\n`{fingerprint}`\nPreviously trusted: {previous}\n\nA rotated or reinstalled controller certificate is a normal cause. A different device or an attacker on your network would look the same. Only submit if you have confirmed this fingerprint on the controller."
       }
     },
     "error": {
       "cannot_connect": "Failed to connect to Wiser for KNX on the specified host/port (the address answered, but not like the controller API).",
       "invalid_auth": "Authentication failed. Please verify username and password.",
       "unknown": "An unexpected error occurred.",
-      "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit."
+      "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit.",
+      "untrusted_certificate": "The controller's certificate is not trusted."
     },
     "abort": {
       "already_configured": "Device is already configured in Home Assistant.",
       "reauth_successful": "Reauthentication was successful.",
-      "not_wiser_knx": "The device did not answer like a Wiser for KNX / KNX IoT controller. Check the address, or add it manually."
+      "not_wiser_knx": "The device did not answer like a Wiser for KNX / KNX IoT controller. Check the address, or add it manually.",
+      "invalid_auth": "Authentication failed.",
+      "cannot_connect": "Could not connect to the controller.",
+      "fingerprint_mismatch": "The controller presented a different certificate than the one that was confirmed.",
+      "unknown": "An unexpected error occurred."
     }
   },
   "options": {
@@ -65,7 +84,11 @@
           "scan_interval": "Polling Interval (seconds)",
           "backup_password": "Backup password",
           "backup_interval_hours": "Automatic backup interval (hours, 0 = off)",
-          "backup_keep": "Number of backups to keep"
+          "backup_keep": "Number of backups to keep",
+          "skip_verify": "Skip certificate verification (insecure)"
+        },
+        "data_description": {
+          "skip_verify": "Off is recommended. Turning it on removes any trusted certificate fingerprint. Turning it off again re-checks the certificate and asks you to confirm its fingerprint if it is self-signed."
         }
       }
     },
@@ -77,6 +100,12 @@
     "create_backup": {
       "name": "Create controller backup",
       "description": "Download the system and project backups from the controller and store them in the wiser_backups folder of the Home Assistant configuration directory."
+    }
+  },
+  "issues": {
+    "insecure_tls": {
+      "title": "Certificate verification is disabled",
+      "description": "The connection to the controller at {host} does not verify its TLS certificate, so the controller password is sent to whoever answers on that address. Open the integration, choose Configure, turn off \"Skip certificate verification (insecure)\", and confirm the controller's certificate fingerprint when asked."
     }
   }
 }

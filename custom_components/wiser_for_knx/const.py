@@ -9,6 +9,8 @@ CONF_HOST = "host"
 CONF_PORT = "port"
 CONF_SSL = "ssl"
 CONF_VERIFY_SSL = "verify_ssl"
+CONF_CERT_FINGERPRINT = "certificate_fingerprint"  # pinned SHA-256, hex
+CONF_SKIP_VERIFY = "skip_verify"  # form-only inverse of verify_ssl
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_SCAN_INTERVAL = "scan_interval"
@@ -17,10 +19,12 @@ CONF_API_BASE = "api_base"
 # Defaults
 DEFAULT_PORT = 443
 DEFAULT_SSL = True
-DEFAULT_VERIFY_SSL = False
+DEFAULT_VERIFY_SSL = True  # new entries are verified unless the user opts out
 DEFAULT_SCAN_INTERVAL = 10  # seconds
 DEFAULT_USERNAME = "admin"
 DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
+
+ISSUE_INSECURE_TLS = "insecure_tls_{entry_id}"
 
 # Management API (backups, device info) and backup settings
 MGMT_API_BASE = "/api/management/v1"

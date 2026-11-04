@@ -90,6 +90,12 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 
 ---
 
+## TLS certificate verification
+
+The controller's certificate is verified by default. Controllers usually use a self-signed certificate, so when verification fails during setup the integration shows the certificate's SHA-256 fingerprint. Compare it with the controller, then confirm; only that exact certificate is trusted from then on. If the certificate later changes, Home Assistant asks you to re-confirm instead of connecting.
+
+Under **Configure** you can enable *Skip certificate verification (insecure)*. While it is on, Home Assistant shows a repair notice. Entries created by earlier versions keep their existing (unverified) setting after the upgrade and show that notice until you turn the option off.
+
 ## 💾 Controller Backups
 
 The integration can download your controller's configuration through its management API (`/api/management/v1`) using the same credentials. Two ZIP archives are stored per backup: the **system** configuration and the **project** (SCADA) configuration. Both are encrypted with a password you choose.

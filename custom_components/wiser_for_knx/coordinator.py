@@ -10,7 +10,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import WiserKnxAuthError, WiserKnxClient, WiserKnxConnectionError
+from .api import (
+    WiserKnxAuthError,
+    WiserKnxCertificateError,
+    WiserKnxClient,
+    WiserKnxConnectionError,
+)
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .widgets import classify_function
 
@@ -92,6 +97,12 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except WiserKnxAuthError as err:
             raise ConfigEntryAuthFailed(
                 f"Authentication error communicating with Wiser: {err}"
+            ) from err
+        except WiserKnxCertificateError as err:
+            # Certificate rotated or replaced (or someone is impersonating the controller):
+            # start reauth so the user decides, never re-trust automatically.
+            raise ConfigEntryAuthFailed(
+                f"TLS certificate of the controller is not trusted: {err}"
             ) from err
         except WiserKnxConnectionError as err:
             raise UpdateFailed(

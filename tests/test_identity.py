@@ -75,6 +75,6 @@ def test_migrate_does_not_duplicate_an_existing_id():
 
 def test_migrate_refuses_future_version():
     assert (
-        asyncio.run(async_migrate_entry(_hass([]), _entry("e1", None, version=3)))
+        asyncio.run(async_migrate_entry(_hass([]), _entry("e1", None, version=4)))
         is False
     )

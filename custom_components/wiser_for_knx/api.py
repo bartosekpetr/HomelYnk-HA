@@ -10,6 +10,7 @@ import aiohttp
 from aiohttp import BasicAuth
 
 from .const import MGMT_API_BASE
+from .tls import fingerprint_bytes
 from .health import parse_health
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,6 +24,25 @@ class WiserKnxConnectionError(Exception):
     """Raised when connection to Wiser for KNX fails."""
 
 
+class WiserKnxCertificateError(WiserKnxConnectionError):
+    """Raised when the controller's TLS certificate is not trusted."""
+
+
+class WiserKnxFingerprintMismatchError(WiserKnxCertificateError):
+    """Raised when the certificate does not match the pinned fingerprint."""
+
+
+def _connection_error(
+    message: str, err: aiohttp.ClientError
+) -> WiserKnxConnectionError:
+    """Map an aiohttp error to the matching client exception, keeping TLS failures distinct."""
+    if isinstance(err, aiohttp.ServerFingerprintMismatch):
+        return WiserKnxFingerprintMismatchError(message)
+    if isinstance(err, aiohttp.ClientSSLError):
+        return WiserKnxCertificateError(message)
+    return WiserKnxConnectionError(message)
+
+
 class WiserKnxClient:
     """Client for Wiser for KNX IoT 3rd Party API."""
 
@@ -34,16 +54,26 @@ class WiserKnxClient:
         username: str | None = None,
         password: str | None = None,
         session: aiohttp.ClientSession | None = None,
-        verify_ssl: bool = False,
+        verify_ssl: bool = True,
+        fingerprint: str | None = None,
     ) -> None:
-        """Initialize the client."""
+        """Initialize the client.
+
+        TLS trust is one of three mutually exclusive modes, decided once here:
+        a pinned SHA-256 `fingerprint` (self-signed controllers, trusted on first use),
+        normal verification (`verify_ssl=True`), or none (`verify_ssl=False`, insecure).
+        A fingerprint always wins; it is never combined with `verify_ssl=False`.
+        """
         self.host = host
         self.port = port
         self.ssl = ssl
+        self.fingerprint = fingerprint
         self.verify_ssl = verify_ssl
         self.username = username
         self.password = password
-        self._session = session
+        self._session = (
+            None if fingerprint else session
+        )  # a pin needs its own connector
         self._own_session = False
 
         self.api_base = "/api/w4knx/3rdparty/v1"
@@ -72,11 +102,17 @@ class WiserKnxClient:
             "Content-Type": "application/vnd.api+json",
         }
 
+    @property
+    def tls_setting(self) -> aiohttp.Fingerprint | bool:
+        """Value for the connector's `ssl=` argument; set once, never per request."""
+        if self.fingerprint:
+            return aiohttp.Fingerprint(fingerprint_bytes(self.fingerprint))
+        return self.verify_ssl
+
     async def _get_session(self) -> aiohttp.ClientSession:
         """Return or create aiohttp session."""
         if self._session is None or self._session.closed:
-            # Local controllers commonly use self-signed certificates, so verification is opt-in
-            connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
+            connector = aiohttp.TCPConnector(ssl=self.tls_setting)
             self._session = aiohttp.ClientSession(connector=connector)
             self._own_session = True
         return self._session
@@ -97,7 +133,6 @@ class WiserKnxClient:
                 well_known_url,
                 headers={"Accept": "application/json, */*"},
                 timeout=timeout,
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
@@ -106,6 +141,10 @@ class WiserKnxClient:
                     if api_base:
                         self.api_base = api_base
                     _LOGGER.info("Discovered KNX API base: %s", self.api_base)
+        except (aiohttp.ClientSSLError, aiohttp.ServerFingerprintMismatch) as err:
+            raise _connection_error(
+                f"TLS failure talking to {well_known_url}: {err}", err
+            ) from err
         except Exception as err:
             _LOGGER.debug(
                 "Well-known probe notice: %s (using default base %s)",
@@ -126,7 +165,6 @@ class WiserKnxClient:
                 f"{self.base_url}/.well-known/knx",
                 headers={"Accept": "application/json, */*"},
                 timeout=aiohttp.ClientTimeout(total=5),
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status != 200:
                     return None
@@ -137,6 +175,21 @@ class WiserKnxClient:
         if not isinstance(data, dict) or not isinstance(data.get("api"), dict):
             return None
         return data
+
+    async def async_check_tls(self) -> None:
+        """Unauthenticated TLS check; raise WiserKnxCertificateError if the cert is untrusted.
+
+        Sends no credentials, so it is safe to call before the certificate is trusted.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}/.well-known/knx"
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                await resp.read()
+        except aiohttp.ClientError as err:
+            raise _connection_error(f"Request to {url} failed: {err}", err) from err
+        except asyncio.TimeoutError as err:
+            raise WiserKnxConnectionError(f"Request to {url} timed out") from err
 
     async def async_get_device_info(self) -> dict[str, Any]:
         """Return the management API deviceInfo payload (requires authentication)."""
@@ -156,7 +209,6 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status == 200:
                     return True
@@ -169,7 +221,7 @@ class WiserKnxClient:
                     f"Unexpected HTTP {resp.status} from {url}"
                 )
         except aiohttp.ClientError as err:
-            raise WiserKnxConnectionError(f"Connection failed to {url}: {err}") from err
+            raise _connection_error(f"Connection failed to {url}: {err}", err) from err
         except asyncio.TimeoutError as err:
             raise WiserKnxConnectionError(f"Connection timed out to {url}") from err
 
@@ -188,7 +240,6 @@ class WiserKnxClient:
                 headers=self._get_headers(),
                 auth=self._get_auth(),
                 timeout=aiohttp.ClientTimeout(total=10),
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError(f"Unauthorized reading {resource}")
@@ -196,7 +247,7 @@ class WiserKnxClient:
                     raise WiserKnxConnectionError(f"{url} returned HTTP {resp.status}")
                 json_data = await resp.json(content_type=None)
         except aiohttp.ClientError as err:
-            raise WiserKnxConnectionError(f"Request to {url} failed: {err}") from err
+            raise _connection_error(f"Request to {url} failed: {err}", err) from err
         except asyncio.TimeoutError as err:
             raise WiserKnxConnectionError(f"Request to {url} timed out") from err
         except ValueError as err:
@@ -290,7 +341,6 @@ class WiserKnxClient:
                 headers={"Accept": "application/json"},
                 auth=self._get_auth(),
                 timeout=aiohttp.ClientTimeout(total=15),
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError(f"Unauthorized reading {path}")
@@ -298,7 +348,7 @@ class WiserKnxClient:
                     raise WiserKnxConnectionError(f"{path} returned HTTP {resp.status}")
                 body = await resp.json(content_type=None)
         except aiohttp.ClientError as err:
-            raise WiserKnxConnectionError(f"Request to {path} failed: {err}") from err
+            raise _connection_error(f"Request to {path} failed: {err}", err) from err
         return (body or {}).get("data") or {}
 
     async def async_get_health(self) -> dict[str, Any]:
@@ -321,7 +371,6 @@ class WiserKnxClient:
                 },
                 auth=self._get_auth(),
                 timeout=aiohttp.ClientTimeout(total=180),
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError("Unauthorized creating backup")
@@ -335,7 +384,7 @@ class WiserKnxClient:
                     )
                 return await resp.read()
         except aiohttp.ClientError as err:
-            raise WiserKnxConnectionError(f"Backup request failed: {err}") from err
+            raise _connection_error(f"Backup request failed: {err}", err) from err
 
     async def write_datapoint_value(self, datapoint_id: str, value: Any) -> bool:
         """Write value to a datapoint using PUT /datapoints/values."""
@@ -368,7 +417,6 @@ class WiserKnxClient:
                 headers=headers,
                 auth=auth,
                 timeout=timeout,
-                ssl=self.verify_ssl,
             ) as resp:
                 if resp.status in (200, 201, 202, 204):
                     return True
