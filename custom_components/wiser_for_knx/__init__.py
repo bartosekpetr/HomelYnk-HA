@@ -20,23 +20,23 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .api import WiserKnxClient
+from .api import WiserKnxClient, WiserKnxConnectionError
 from .backup import WiserKnxBackupManager
 from .const import (
     CONF_API_BASE,
-    CONF_CERT_FINGERPRINT,
     CONF_BACKUP_INTERVAL,
     CONF_BACKUP_KEEP,
     CONF_BACKUP_PASSWORD,
+    CONF_CERT_FINGERPRINT,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
+    DATA_INITIAL_BACKUP,
     DEFAULT_BACKUP_INTERVAL,
     DEFAULT_BACKUP_KEEP,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
     DEFAULT_VERIFY_SSL,
-    DATA_INITIAL_BACKUP,
     DOMAIN,
     ISSUE_INSECURE_TLS,
     PLATFORMS,
@@ -156,7 +156,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         try:
             disc = await client.discover_endpoints()
             client.api_base = disc.get("api_base", "/api/w4knx/3rdparty/v1")
-        except Exception as err:
+        except WiserKnxConnectionError as err:
             _LOGGER.warning("Endpoint auto-discovery encountered an issue: %s", err)
 
     coordinator = WiserKnxDataUpdateCoordinator(

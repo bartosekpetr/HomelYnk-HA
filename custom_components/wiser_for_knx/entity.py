@@ -75,7 +75,6 @@ class WiserKnxBaseEntity(CoordinatorEntity[WiserKnxDataUpdateCoordinator]):
     @property
     def device_info(self) -> DeviceInfo:
         """Return device information linking to function and room."""
-        host = self.coordinator.client.host
         device_name = self.function_data.get("title") or f"Function {self.function_id}"
         room = self.room_name
 

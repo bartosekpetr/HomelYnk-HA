@@ -2,9 +2,8 @@
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from custom_components.wiser_for_knx import config_flow
 from custom_components.wiser_for_knx.config_flow import WiserKnxConfigFlow
 
 

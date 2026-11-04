@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.wiser_for_knx.api import (
     WiserKnxAuthError,
@@ -12,8 +14,6 @@ from custom_components.wiser_for_knx.api import (
     WiserKnxConnectionError,
 )
 from custom_components.wiser_for_knx.coordinator import WiserKnxDataUpdateCoordinator
-from homeassistant.exceptions import ConfigEntryAuthFailed
-from homeassistant.helpers.update_coordinator import UpdateFailed
 
 
 class _FakeResponse:
@@ -50,7 +50,7 @@ def test_timeout_raises_connection_error(getter):
     """A timeout must not be reported as an empty successful result."""
 
     def get(*args, **kwargs):
-        raise asyncio.TimeoutError
+        raise TimeoutError
 
     with pytest.raises(WiserKnxConnectionError):
         asyncio.run(getattr(_client(get), getter)())

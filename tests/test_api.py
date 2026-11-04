@@ -1,10 +1,8 @@
 """Unit tests for Wiser for KNX API client, parsing, and classification."""
 
-import asyncio
 import json
 import os
 
-from custom_components.wiser_for_knx.api import WiserKnxClient
 from custom_components.wiser_for_knx.coordinator import WiserKnxDataUpdateCoordinator
 
 
@@ -87,11 +85,11 @@ def test_live_data_parsing():
     if not os.path.exists(locations_file):
         return
 
-    with open(locations_file, "r", encoding="utf-8") as f:
+    with open(locations_file, encoding="utf-8") as f:
         locs_raw = json.load(f)["data"]
-    with open(functions_file, "r", encoding="utf-8") as f:
+    with open(functions_file, encoding="utf-8") as f:
         funcs_raw = json.load(f)["data"]
-    with open(datapoints_file, "r", encoding="utf-8") as f:
+    with open(datapoints_file, encoding="utf-8") as f:
         dps_raw = json.load(f)["data"]
 
     # Verify locations structure

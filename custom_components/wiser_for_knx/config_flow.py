@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant import config_entries
 from homeassistant.const import (
     CONF_HOST,
@@ -34,17 +33,17 @@ from .api import (
 from .backup_utils import is_valid_backup_password
 from .const import (
     CONF_API_BASE,
-    CONF_CERT_FINGERPRINT,
-    CONF_SKIP_VERIFY,
     CONF_BACKUP_INTERVAL,
     CONF_BACKUP_KEEP,
     CONF_BACKUP_NOW,
     CONF_BACKUP_PASSWORD,
+    CONF_CERT_FINGERPRINT,
     CONF_SCAN_INTERVAL,
+    CONF_SKIP_VERIFY,
     CONF_VERIFY_SSL,
     DATA_INITIAL_BACKUP,
-    DEFAULT_BACKUP_INTERVAL,
     DEFAULT_API_BASE,
+    DEFAULT_BACKUP_INTERVAL,
     DEFAULT_BACKUP_KEEP,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
@@ -53,8 +52,8 @@ from .const import (
     DEFAULT_VERIFY_SSL,
     DOMAIN,
 )
-from .tls import async_fetch_fingerprint, format_fingerprint
 from .identity import normalize_mac, stable_id_from_device_info
+from .tls import async_fetch_fingerprint, format_fingerprint
 
 _LOGGER = logging.getLogger(__name__)
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Any
 
@@ -10,8 +9,8 @@ import aiohttp
 from aiohttp import BasicAuth
 
 from .const import MGMT_API_BASE
-from .tls import fingerprint_bytes
 from .health import parse_health
+from .tls import fingerprint_bytes
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -145,7 +144,7 @@ class WiserKnxClient:
             raise _connection_error(
                 f"TLS failure talking to {well_known_url}: {err}", err
             ) from err
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - optional probe; any failure falls back to the default base
             _LOGGER.debug(
                 "Well-known probe notice: %s (using default base %s)",
                 err,
@@ -169,7 +168,7 @@ class WiserKnxClient:
                 if resp.status != 200:
                     return None
                 data = await resp.json(content_type=None)
-        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+        except (TimeoutError, aiohttp.ClientError, ValueError) as err:
             _LOGGER.debug("KNX probe of %s failed: %s", self.base_url, err)
             return None
         if not isinstance(data, dict) or not isinstance(data.get("api"), dict):
@@ -188,7 +187,7 @@ class WiserKnxClient:
                 await resp.read()
         except aiohttp.ClientError as err:
             raise _connection_error(f"Request to {url} failed: {err}", err) from err
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise WiserKnxConnectionError(f"Request to {url} timed out") from err
 
     async def async_get_device_info(self) -> dict[str, Any]:
@@ -222,7 +221,7 @@ class WiserKnxClient:
                 )
         except aiohttp.ClientError as err:
             raise _connection_error(f"Connection failed to {url}: {err}", err) from err
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise WiserKnxConnectionError(f"Connection timed out to {url}") from err
 
     async def _async_get_items(self, resource: str) -> list[dict[str, Any]]:
@@ -248,7 +247,7 @@ class WiserKnxClient:
                 json_data = await resp.json(content_type=None)
         except aiohttp.ClientError as err:
             raise _connection_error(f"Request to {url} failed: {err}", err) from err
-        except asyncio.TimeoutError as err:
+        except TimeoutError as err:
             raise WiserKnxConnectionError(f"Request to {url} timed out") from err
         except ValueError as err:
             raise WiserKnxConnectionError(f"Invalid JSON from {url}: {err}") from err
@@ -431,6 +430,6 @@ class WiserKnxClient:
                 return False
         except WiserKnxAuthError:
             raise
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 - a write must report failure (False), never crash the service call
             _LOGGER.error("Error writing datapoint %s: %s", datapoint_id, err)
             return False

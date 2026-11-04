@@ -121,7 +121,6 @@ def parse(raw: dict):
         binary_device_class,
         classify_function,
         detect_widget_type,
-        is_binary_datapoint,
     )
 
     dps: dict[str, dict] = {}
