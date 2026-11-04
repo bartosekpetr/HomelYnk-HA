@@ -1,7 +1,7 @@
 {
   "domain": "wiser_for_knx",
   "name": "Wiser for KNX",
-  "codeowners": ["@user"],
+  "codeowners": ["@bartosekpetr"],
   "config_flow": true,
   "documentation": "https://github.com/bartosekpetr/HomelYnk-HA",
   "integration_type": "hub",
