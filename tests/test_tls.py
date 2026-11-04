@@ -49,8 +49,13 @@ def _make_cert(tmp_path, name):
 
 
 @pytest.fixture
-async def server(tmp_path):
+async def server(tmp_path, request):
     """Yield (port, fingerprint) of a TLS server using a self-signed certificate."""
+    try:
+        # pytest-homeassistant-custom-component blocks sockets; this server is loopback-only.
+        request.getfixturevalue("socket_enabled")
+    except pytest.FixtureLookupError:
+        pass  # plain pytest run: nothing blocks sockets
     cert, key, fp = _make_cert(tmp_path, "srv")
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(cert, key)

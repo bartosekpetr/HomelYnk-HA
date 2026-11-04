@@ -42,7 +42,7 @@ def _client(get):
 
 
 def _coordinator(client):
-    return WiserKnxDataUpdateCoordinator(MagicMock(), client)
+    return WiserKnxDataUpdateCoordinator(MagicMock(), client, MagicMock())
 
 
 @pytest.mark.parametrize("getter", ["get_locations", "get_functions", "get_datapoints"])

@@ -162,6 +162,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = WiserKnxDataUpdateCoordinator(
         hass=hass,
         client=client,
+        config_entry=entry,
         update_interval=scan_interval,
     )
 
@@ -181,7 +182,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await backup_manager.async_start()
 
     # Health is best effort: a failure only makes the health sensors unavailable
-    coordinator.health = WiserKnxHealthCoordinator(hass, client)
+    coordinator.health = WiserKnxHealthCoordinator(hass, client, entry)
     await coordinator.health.async_refresh()
     device_id = (coordinator.health.data or {}).get("device_id")
     if (

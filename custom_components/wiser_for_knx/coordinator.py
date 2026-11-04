@@ -6,6 +6,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
@@ -25,12 +26,15 @@ _LOGGER = logging.getLogger(__name__)
 class WiserKnxHealthCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Polls controller health (firmware, uptime, load, memory, storage) every few minutes."""
 
-    def __init__(self, hass: HomeAssistant, client: WiserKnxClient) -> None:
+    def __init__(
+        self, hass: HomeAssistant, client: WiserKnxClient, config_entry: ConfigEntry
+    ) -> None:
         """Initialize the coordinator."""
         self.client = client
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=f"{DOMAIN}_health",
             update_interval=timedelta(minutes=5),
         )
@@ -49,6 +53,7 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         hass: HomeAssistant,
         client: WiserKnxClient,
+        config_entry: ConfigEntry,
         update_interval: int = DEFAULT_SCAN_INTERVAL,
     ) -> None:
         """Initialize the coordinator."""
@@ -58,6 +63,7 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=config_entry,
             name=DOMAIN,
             update_interval=timedelta(seconds=update_interval),
         )
