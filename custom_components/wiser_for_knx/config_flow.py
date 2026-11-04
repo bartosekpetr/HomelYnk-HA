@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import logging
 from typing import Any
 
@@ -246,6 +247,8 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         CONF_API_BASE: self._api_base,
                     }
                     return await self.async_step_backup()
+            except WiserKnxAuthError:
+                errors["base"] = "invalid_auth"
             except Exception as err:
                 _LOGGER.exception("Connection verification failed: %s", err)
                 errors["base"] = "cannot_connect"
@@ -268,6 +271,63 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "host": self._discovered_host or "",
             },
+        )
+
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+        """Start reauthentication after the controller rejected the stored credentials."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Ask for new credentials and verify them against the controller."""
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+
+        if user_input is not None:
+            username = user_input.get(CONF_USERNAME, "").strip() or None
+            password = user_input.get(CONF_PASSWORD, "")
+            verify_ssl = entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+
+            client = WiserKnxClient(
+                host=entry.data[CONF_HOST],
+                port=entry.data.get(CONF_PORT, DEFAULT_PORT),
+                ssl=entry.data.get(CONF_SSL, DEFAULT_SSL),
+                verify_ssl=verify_ssl,
+                username=username,
+                password=password,
+                session=async_get_clientsession(self.hass, verify_ssl=verify_ssl),
+            )
+            if entry.data.get(CONF_API_BASE):
+                client.api_base = entry.data[CONF_API_BASE]
+
+            try:
+                authenticated = await client.authenticate()
+            except WiserKnxAuthError:
+                errors["base"] = "invalid_auth"
+            except WiserKnxConnectionError:
+                errors["base"] = "cannot_connect"
+            else:
+                if authenticated:
+                    return self.async_update_reload_and_abort(
+                        entry,
+                        data_updates={CONF_USERNAME: username, CONF_PASSWORD: password},
+                    )
+                errors["base"] = "invalid_auth"
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_USERNAME, default=entry.data.get(CONF_USERNAME) or DEFAULT_USERNAME
+                ): str,
+                vol.Optional(CONF_PASSWORD, default=""): str,
+            }
+        )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=schema,
+            errors=errors,
+            description_placeholders={"host": entry.data[CONF_HOST]},
         )
 
     @staticmethod

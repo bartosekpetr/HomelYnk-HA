@@ -59,6 +59,8 @@ class WiserKnxClient:
 
     def _get_auth(self) -> BasicAuth | None:
         """Return BasicAuth if credentials provided."""
+        if self.password and not self.username:
+            raise WiserKnxAuthError("A password was provided without a username")
         if self.username and self.password:
             return BasicAuth(self.username, self.password)
         return None
@@ -133,158 +135,115 @@ class WiserKnxClient:
                 if resp.status in (401, 403):
                     _LOGGER.warning("Authentication failed (HTTP %s) at %s", resp.status, url)
                     return False
-                _LOGGER.warning("Unexpected status %s at %s", resp.status, url)
-                return False
+                raise WiserKnxConnectionError(f"Unexpected HTTP {resp.status} from {url}")
         except aiohttp.ClientError as err:
             raise WiserKnxConnectionError(f"Connection failed to {url}: {err}") from err
         except asyncio.TimeoutError as err:
             raise WiserKnxConnectionError(f"Connection timed out to {url}") from err
 
-    async def get_locations(self) -> dict[str, dict[str, Any]]:
-        """Retrieve all locations (sites, floors, rooms) mapped by location ID."""
-        session = await self._get_session()
-        auth = self._get_auth()
-        headers = self._get_headers()
-        timeout = aiohttp.ClientTimeout(total=10)
+    async def _async_get_items(self, resource: str) -> list[dict[str, Any]]:
+        """GET a collection from the 3rd party API and return its `data` list.
 
-        url = f"{self.base_url}{self.api_base}/locations"
+        Raises WiserKnxAuthError on 401/403 and WiserKnxConnectionError on any
+        other failure, so callers (the coordinator) can tell an outage from an
+        empty installation.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}{self.api_base}/{resource}"
         try:
             async with session.get(
                 url,
-                headers=headers,
-                auth=auth,
-                timeout=timeout,
+                headers=self._get_headers(),
+                auth=self._get_auth(),
+                timeout=aiohttp.ClientTimeout(total=10),
                 ssl=self.verify_ssl,
             ) as resp:
-                if resp.status == 200:
-                    json_data = await resp.json(content_type=None)
-                    locations = {}
-                    for item in json_data.get("data", []):
-                        loc_id = item.get("id")
-                        if loc_id:
-                            locations[loc_id] = {
-                                "id": loc_id,
-                                "type": item.get("type"),  # site, floor, room
-                                "title": item.get("attributes", {}).get("title", ""),
-                                "parent_id": item.get("attributes", {}).get("schneider:parentLocation"),
-                            }
-                    return locations
                 if resp.status in (401, 403):
-                    raise WiserKnxAuthError("Unauthorized reading locations")
-        except WiserKnxAuthError:
-            raise
-        except Exception as err:
-            _LOGGER.error("Error retrieving locations: %s", err)
+                    raise WiserKnxAuthError(f"Unauthorized reading {resource}")
+                if resp.status != 200:
+                    raise WiserKnxConnectionError(f"{url} returned HTTP {resp.status}")
+                json_data = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise WiserKnxConnectionError(f"Request to {url} failed: {err}") from err
+        except asyncio.TimeoutError as err:
+            raise WiserKnxConnectionError(f"Request to {url} timed out") from err
+        except ValueError as err:
+            raise WiserKnxConnectionError(f"Invalid JSON from {url}: {err}") from err
+        return (json_data or {}).get("data") or []
 
-        return {}
+    async def get_locations(self) -> dict[str, dict[str, Any]]:
+        """Retrieve all locations (sites, floors, rooms) mapped by location ID."""
+        locations = {}
+        for item in await self._async_get_items("locations"):
+            loc_id = item.get("id")
+            if loc_id:
+                locations[loc_id] = {
+                    "id": loc_id,
+                    "type": item.get("type"),  # site, floor, room
+                    "title": item.get("attributes", {}).get("title", ""),
+                    "parent_id": item.get("attributes", {}).get("schneider:parentLocation"),
+                }
+        return locations
 
     async def get_functions(self) -> dict[str, dict[str, Any]]:
         """Retrieve all functions (devices/logical entities) mapped by function ID."""
-        session = await self._get_session()
-        auth = self._get_auth()
-        headers = self._get_headers()
-        timeout = aiohttp.ClientTimeout(total=10)
+        functions = {}
+        for item in await self._async_get_items("functions"):
+            func_id = item.get("id")
+            if not func_id:
+                continue
 
-        url = f"{self.base_url}{self.api_base}/functions"
-        try:
-            async with session.get(
-                url,
-                headers=headers,
-                auth=auth,
-                timeout=timeout,
-                ssl=self.verify_ssl,
-            ) as resp:
-                if resp.status == 200:
-                    json_data = await resp.json(content_type=None)
-                    functions = {}
-                    for item in json_data.get("data", []):
-                        func_id = item.get("id")
-                        if not func_id:
-                            continue
+            # Extract location id from relationships if available
+            loc_rel = (
+                item.get("relationships", {})
+                .get("functionLocations", {})
+                .get("links", {})
+                .get("related", "")
+            )
+            # loc_rel format: "/locations/{id}"
+            loc_id = loc_rel.split("/")[-1] if "/locations/" in loc_rel else None
 
-                        # Extract location id from relationships if available
-                        loc_rel = (
-                            item.get("relationships", {})
-                            .get("functionLocations", {})
-                            .get("links", {})
-                            .get("related", "")
-                        )
-                        # loc_rel format: "/locations/{id}"
-                        loc_id = loc_rel.split("/")[-1] if "/locations/" in loc_rel else None
-
-                        functions[func_id] = {
-                            "id": func_id,
-                            "title": item.get("attributes", {}).get("title", f"Function {func_id}"),
-                            "types": item.get("meta", {}).get("@type", []),
-                            "location_id": loc_id,
-                            "alarm_text": item.get("attributes", {}).get("schneider:alarmText"),
-                            "widget_id": item.get("attributes", {}).get("schneider:widgetId"),
-                            "title_base": item.get("attributes", {}).get("schneider:titleBase"),
-                            "widget_settings": item.get("attributes", {}).get("schneider:widgetSettings"),
-                            "datapoints": {},  # Will be populated with associated datapoints
-                        }
-                    return functions
-                if resp.status in (401, 403):
-                    raise WiserKnxAuthError("Unauthorized reading functions")
-        except WiserKnxAuthError:
-            raise
-        except Exception as err:
-            _LOGGER.error("Error retrieving functions: %s", err)
-
-        return {}
+            functions[func_id] = {
+                "id": func_id,
+                "title": item.get("attributes", {}).get("title", f"Function {func_id}"),
+                "types": item.get("meta", {}).get("@type", []),
+                "location_id": loc_id,
+                "alarm_text": item.get("attributes", {}).get("schneider:alarmText"),
+                "widget_id": item.get("attributes", {}).get("schneider:widgetId"),
+                "title_base": item.get("attributes", {}).get("schneider:titleBase"),
+                "widget_settings": item.get("attributes", {}).get("schneider:widgetSettings"),
+                "datapoints": {},  # Will be populated with associated datapoints
+            }
+        return functions
 
     async def get_datapoints(self) -> dict[str, dict[str, Any]]:
         """Retrieve all datapoints mapped by datapoint ID."""
-        session = await self._get_session()
-        auth = self._get_auth()
-        headers = self._get_headers()
-        timeout = aiohttp.ClientTimeout(total=10)
+        datapoints = {}
+        for item in await self._async_get_items("datapoints"):
+            dp_id = item.get("id")
+            if not dp_id:
+                continue
 
-        url = f"{self.base_url}{self.api_base}/datapoints"
-        try:
-            async with session.get(
-                url,
-                headers=headers,
-                auth=auth,
-                timeout=timeout,
-                ssl=self.verify_ssl,
-            ) as resp:
-                if resp.status == 200:
-                    json_data = await resp.json(content_type=None)
-                    datapoints = {}
-                    for item in json_data.get("data", []):
-                        dp_id = item.get("id")
-                        if not dp_id:
-                            continue
-
-                        attr = item.get("attributes", {})
-                        meta = item.get("meta", {})
-                        datapoints[dp_id] = {
-                            "id": dp_id,
-                            "title": attr.get("title", ""),
-                            "value": attr.get("value"),
-                            "value_type": attr.get("valueType", "string"),
-                            "readable": attr.get("readable", True),
-                            "writable": attr.get("writable", False),
-                            "unit": attr.get("unit", ""),
-                            "minimum": attr.get("minimum"),
-                            "maximum": attr.get("maximum"),
-                            "enum": attr.get("enum", []),
-                            "parent_function_id": attr.get("schneider:parentFunction"),
-                            "parent_function_name": attr.get("schneider:parentFunctionName"),
-                            "parent_location_id": attr.get("schneider:parentLocation"),
-                            "parent_location_name": attr.get("schneider:parentLocationName"),
-                            "types": meta.get("@type", []),
-                        }
-                    return datapoints
-                if resp.status in (401, 403):
-                    raise WiserKnxAuthError("Unauthorized reading datapoints")
-        except WiserKnxAuthError:
-            raise
-        except Exception as err:
-            _LOGGER.error("Error retrieving datapoints: %s", err)
-
-        return {}
+            attr = item.get("attributes", {})
+            meta = item.get("meta", {})
+            datapoints[dp_id] = {
+                "id": dp_id,
+                "title": attr.get("title", ""),
+                "value": attr.get("value"),
+                "value_type": attr.get("valueType", "string"),
+                "readable": attr.get("readable", True),
+                "writable": attr.get("writable", False),
+                "unit": attr.get("unit", ""),
+                "minimum": attr.get("minimum"),
+                "maximum": attr.get("maximum"),
+                "enum": attr.get("enum", []),
+                "parent_function_id": attr.get("schneider:parentFunction"),
+                "parent_function_name": attr.get("schneider:parentFunctionName"),
+                "parent_location_id": attr.get("schneider:parentLocation"),
+                "parent_location_name": attr.get("schneider:parentLocationName"),
+                "types": meta.get("@type", []),
+            }
+        return datapoints
 
     async def _async_mgmt_get(self, path: str) -> dict[str, Any]:
         """GET a management API path and return its `data` object."""

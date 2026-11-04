@@ -7,9 +7,10 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .api import WiserKnxAuthError, WiserKnxClient
+from .api import WiserKnxAuthError, WiserKnxClient, WiserKnxConnectionError
 from .const import DEFAULT_SCAN_INTERVAL, DOMAIN
 from .widgets import classify_function
 
@@ -84,8 +85,8 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "datapoints": datapoints,
             }
         except WiserKnxAuthError as err:
-            raise UpdateFailed(f"Authentication error communicating with Wiser: {err}") from err
-        except Exception as err:
+            raise ConfigEntryAuthFailed(f"Authentication error communicating with Wiser: {err}") from err
+        except WiserKnxConnectionError as err:
             raise UpdateFailed(f"Error fetching data from Wiser for KNX: {err}") from err
 
     async def async_write_datapoint(self, datapoint_id: str, value: Any) -> bool:

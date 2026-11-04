@@ -25,6 +25,14 @@
           "password": "Password"
         }
       },
+      "reauth_confirm": {
+        "title": "Reauthenticate Wiser for KNX",
+        "description": "The controller at {host} rejected the stored credentials. Enter the current username and password.",
+        "data": {
+          "username": "Username",
+          "password": "Password"
+        }
+      },
       "backup": {
         "title": "Controller backups",
         "description": "Back up this controller from Home Assistant. Leave the password empty to skip backups for now; you can set them up later under Configure. The password protects the backup files and must have at least 8 characters with an uppercase letter, a lowercase letter and a digit.",
@@ -43,7 +51,8 @@
       "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit."
     },
     "abort": {
-      "already_configured": "Device is already configured in Home Assistant."
+      "already_configured": "Device is already configured in Home Assistant.",
+      "reauth_successful": "Reauthentication was successful."
     }
   },
   "options": {

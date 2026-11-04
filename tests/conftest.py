@@ -1,21 +1,28 @@
 """Pytest fixtures and lightweight homeassistant mocks for local testing without HA installed."""
 
+import importlib.util
 import sys
 from unittest.mock import MagicMock
 
 # If aiohttp is not installed locally, provide mock
-if "aiohttp" not in sys.modules:
+if importlib.util.find_spec("aiohttp") is None:
     aiohttp_mock = MagicMock()
     sys.modules["aiohttp"] = aiohttp_mock
 
 # If homeassistant is not installed in the local python environment, mock minimal stubs
-if "homeassistant" not in sys.modules:
+if importlib.util.find_spec("homeassistant") is None:
     ha_mock = MagicMock()
     sys.modules["homeassistant"] = ha_mock
     sys.modules["homeassistant.config_entries"] = MagicMock()
     sys.modules["homeassistant.const"] = MagicMock()
     sys.modules["homeassistant.core"] = MagicMock()
-    sys.modules["homeassistant.exceptions"] = MagicMock()
+    exceptions_mock = MagicMock()
+
+    class _ConfigEntryAuthFailed(Exception):
+        pass
+
+    exceptions_mock.ConfigEntryAuthFailed = _ConfigEntryAuthFailed
+    sys.modules["homeassistant.exceptions"] = exceptions_mock
     sys.modules["homeassistant.helpers"] = MagicMock()
     sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()
     sys.modules["homeassistant.helpers.device_registry"] = MagicMock()
