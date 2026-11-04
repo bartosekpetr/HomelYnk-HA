@@ -22,6 +22,14 @@ DEFAULT_PORT = 443
 DEFAULT_SSL = True
 DEFAULT_VERIFY_SSL = True  # new entries are verified unless the user opts out
 DEFAULT_SCAN_INTERVAL = 10  # seconds
+# Locations and functions only change when the KNX project is reconfigured, so they are
+# fetched once and refreshed on this slow cadence instead of on every datapoint poll.
+STATIC_REFRESH_INTERVAL = 3600  # seconds
+# After a failed static refresh (cache kept) wait this long before trying again.
+STATIC_RETRY_INTERVAL = 300  # seconds
+# A cache older than this with refreshes still failing is no longer trusted: the update
+# fails and entities go unavailable rather than silently serving stale structure forever.
+STATIC_MAX_AGE = 3 * STATIC_REFRESH_INTERVAL  # seconds
 DEFAULT_USERNAME = "admin"
 DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
 
