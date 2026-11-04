@@ -63,9 +63,16 @@ class WiserKnxLight(WiserKnxBaseEntity, LightEntity):
         for dp in dps.values():
             types = dp.get("types", [])
             title = (dp.get("title") or "").lower()
-            if any("scaling" in t or "418.63" in t for t in types) or dp.get("unit") == "%":
+            if (
+                any("scaling" in t or "418.63" in t for t in types)
+                or dp.get("unit") == "%"
+            ):
                 return dp
-            if "value 8bit" in title or "calculated level" in title or "dimm value" in title:
+            if (
+                "value 8bit" in title
+                or "calculated level" in title
+                or "dimm value" in title
+            ):
                 return dp
         return None
 

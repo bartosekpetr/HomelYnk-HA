@@ -30,21 +30,31 @@ def _flow(probe_results):
 
 def test_knx_router_on_udp_port_is_not_offered():
     # Generic KNX/IP router advertising _knx._udp on 3671: nothing answers /.well-known/knx
-    info = SimpleNamespace(ip_address="192.168.1.50", hostname="knxrouter.local.", port=3671, properties={})
+    info = SimpleNamespace(
+        ip_address="192.168.1.50", hostname="knxrouter.local.", port=3671, properties={}
+    )
     flow = _flow({})
-    assert asyncio.run(flow.async_step_zeroconf(info)) == {"type": "abort", "reason": "not_wiser_knx"}
+    assert asyncio.run(flow.async_step_zeroconf(info)) == {
+        "type": "abort",
+        "reason": "not_wiser_knx",
+    }
     flow.async_step_credentials.assert_not_called()
 
 
 def test_dhcp_non_wiser_device_in_same_oui_is_rejected():
     info = SimpleNamespace(ip="192.168.1.60", macaddress="000cc6aabbcc")
     flow = _flow({})
-    assert asyncio.run(flow.async_step_dhcp(info)) == {"type": "abort", "reason": "not_wiser_knx"}
+    assert asyncio.run(flow.async_step_dhcp(info)) == {
+        "type": "abort",
+        "reason": "not_wiser_knx",
+    }
 
 
 def test_zeroconf_port_and_scheme_follow_the_probe():
     # mDNS says port 80; the controller actually answers over http on 80
-    info = SimpleNamespace(ip_address="192.168.1.20", hostname="wiser-1.local.", port=80, properties={})
+    info = SimpleNamespace(
+        ip_address="192.168.1.20", hostname="wiser-1.local.", port=80, properties={}
+    )
     flow = _flow({(80, False): {"api": {"base": "/api/w4knx/3rdparty/v1"}}})
     asyncio.run(flow.async_step_zeroconf(info))
     assert (flow._discovered_port, flow._discovered_ssl) == (80, False)
@@ -63,7 +73,9 @@ def test_duplicate_is_aborted_before_any_network_request():
     info = SimpleNamespace(ip="192.168.1.20", macaddress="000cc6aabbcc")
     flow = _flow({(443, True): {"api": {}}})
     flow._abort_if_unique_id_configured = MagicMock(side_effect=RuntimeError("aborted"))
-    flow._client = MagicMock(side_effect=AssertionError("network used before duplicate check"))
+    flow._client = MagicMock(
+        side_effect=AssertionError("network used before duplicate check")
+    )
     try:
         asyncio.run(flow.async_step_dhcp(info))
     except RuntimeError as err:

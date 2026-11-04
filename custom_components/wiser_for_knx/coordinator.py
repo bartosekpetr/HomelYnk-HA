@@ -76,7 +76,12 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     functions[p_func_id]["datapoints"][dp_id] = dp
 
                 p_loc_id = dp.get("parent_location_id")
-                if p_loc_id and p_func_id and p_func_id in functions and not functions[p_func_id].get("location_id"):
+                if (
+                    p_loc_id
+                    and p_func_id
+                    and p_func_id in functions
+                    and not functions[p_func_id].get("location_id")
+                ):
                     functions[p_func_id]["location_id"] = p_loc_id
 
             return {
@@ -85,9 +90,13 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "datapoints": datapoints,
             }
         except WiserKnxAuthError as err:
-            raise ConfigEntryAuthFailed(f"Authentication error communicating with Wiser: {err}") from err
+            raise ConfigEntryAuthFailed(
+                f"Authentication error communicating with Wiser: {err}"
+            ) from err
         except WiserKnxConnectionError as err:
-            raise UpdateFailed(f"Error fetching data from Wiser for KNX: {err}") from err
+            raise UpdateFailed(
+                f"Error fetching data from Wiser for KNX: {err}"
+            ) from err
 
     async def async_write_datapoint(self, datapoint_id: str, value: Any) -> bool:
         """Write value to datapoint and optimistically update local state."""

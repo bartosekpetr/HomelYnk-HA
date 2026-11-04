@@ -6,7 +6,13 @@ import asyncio
 import logging
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_SSL, CONF_USERNAME
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_PORT,
+    CONF_SSL,
+    CONF_USERNAME,
+)
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
@@ -143,13 +149,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator.health = WiserKnxHealthCoordinator(hass, client)
     await coordinator.health.async_refresh()
     device_id = (coordinator.health.data or {}).get("device_id")
-    if device_id and entry.unique_id is None and not any(
-        other.unique_id == device_id for other in hass.config_entries.async_entries(DOMAIN)
+    if (
+        device_id
+        and entry.unique_id is None
+        and not any(
+            other.unique_id == device_id
+            for other in hass.config_entries.async_entries(DOMAIN)
+        )
     ):
         hass.config_entries.async_update_entry(entry, unique_id=device_id)
     if coordinator.health.data:
-        controller_extra = {"sw_version": coordinator.health.data.get("firmware"),
-                            "hw_version": coordinator.health.data.get("hardware")}
+        controller_extra = {
+            "sw_version": coordinator.health.data.get("firmware"),
+            "hw_version": coordinator.health.data.get("hardware"),
+        }
     else:
         controller_extra = {}
 
@@ -190,11 +203,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     await backup_manager.async_create_backup()
                     return
                 except HomeAssistantError as err:
-                    _LOGGER.warning("Initial controller backup attempt %s failed: %s", attempt, err)
+                    _LOGGER.warning(
+                        "Initial controller backup attempt %s failed: %s", attempt, err
+                    )
                     if attempt == 1:
                         await asyncio.sleep(60)
 
-        entry.async_create_background_task(hass, _initial_backup(), "wiser_initial_backup")
+        entry.async_create_background_task(
+            hass, _initial_backup(), "wiser_initial_backup"
+        )
 
     entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
@@ -205,7 +222,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        coordinator: WiserKnxDataUpdateCoordinator = hass.data[DOMAIN].pop(entry.entry_id, None)
+        coordinator: WiserKnxDataUpdateCoordinator = hass.data[DOMAIN].pop(
+            entry.entry_id, None
+        )
         if coordinator and coordinator.backup_manager:
             coordinator.backup_manager.async_stop()
         if coordinator and coordinator.client:

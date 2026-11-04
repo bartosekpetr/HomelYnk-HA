@@ -3,14 +3,24 @@
 from custom_components.wiser_for_knx.health import parse_health
 
 STATUS = {
-    "General": {"SystemUptime": 28140, "LoadAverage1": 0.88, "LoadAverage2": 0.44, "LoadAverage3": 0.29},
+    "General": {
+        "SystemUptime": 28140,
+        "LoadAverage1": 0.88,
+        "LoadAverage2": 0.44,
+        "LoadAverage3": 0.29,
+    },
     "Memory": {"total": 260395008, "used": 66826240},
     "Partitions": [
         {"MountedOn": "/", "Free": 199831552, "TotalSize": 243113984},
         {"MountedOn": "/data", "Free": 468443136, "TotalSize": 601563136},
     ],
 }
-INFO = {"fwVersion": "3.1.0", "hwVersion": ">=3.2", "architecture": "i.MX6UL LM2i", "uptime": 1}
+INFO = {
+    "fwVersion": "3.1.0",
+    "hwVersion": ">=3.2",
+    "architecture": "i.MX6UL LM2i",
+    "uptime": 1,
+}
 
 
 def test_parse_health_full():

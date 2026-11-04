@@ -9,11 +9,21 @@ from typing import Any
 import voluptuous as vol
 
 from homeassistant import config_entries
-from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_SSL, CONF_USERNAME
+from homeassistant.const import (
+    CONF_HOST,
+    CONF_PASSWORD,
+    CONF_PORT,
+    CONF_SSL,
+    CONF_USERNAME,
+)
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import AbortFlow, FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
+from homeassistant.helpers.selector import (
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
 
 from .api import WiserKnxAuthError, WiserKnxClient, WiserKnxConnectionError
 from .backup_utils import is_valid_backup_password
@@ -72,7 +82,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_BACKUP_INTERVAL: user_input.get(
                         CONF_BACKUP_INTERVAL, DEFAULT_BACKUP_INTERVAL
                     ),
-                    CONF_BACKUP_KEEP: user_input.get(CONF_BACKUP_KEEP, DEFAULT_BACKUP_KEEP),
+                    CONF_BACKUP_KEEP: user_input.get(
+                        CONF_BACKUP_KEEP, DEFAULT_BACKUP_KEEP
+                    ),
                 }
                 if password:
                     options[CONF_BACKUP_PASSWORD] = password
@@ -101,8 +113,13 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="backup", data_schema=schema, errors=errors)
 
     def _client(
-        self, host: str, port: int, ssl: bool, verify_ssl: bool,
-        username: str | None = None, password: str = "",
+        self,
+        host: str,
+        port: int,
+        ssl: bool,
+        verify_ssl: bool,
+        username: str | None = None,
+        password: str = "",
     ) -> WiserKnxClient:
         return WiserKnxClient(
             host=host,
@@ -123,7 +140,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self.hass.config_entries.async_update_entry(entry, unique_id=unique_id)
             raise AbortFlow("already_configured")
 
-    async def _async_probe_discovered(self, host: str, port: int) -> tuple[int, bool] | None:
+    async def _async_probe_discovered(
+        self, host: str, port: int
+    ) -> tuple[int, bool] | None:
         """Find the (port, ssl) at which `host` answers /.well-known/knx, or None."""
         candidates = [(port, port != 80), (DEFAULT_PORT, True), (80, False)]
         for cand_port, cand_ssl in dict.fromkeys(candidates):
@@ -148,17 +167,23 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not await client.authenticate():
                 return "invalid_auth"
             try:
-                device_id = stable_id_from_device_info(await client.async_get_device_info())
+                device_id = stable_id_from_device_info(
+                    await client.async_get_device_info()
+                )
             except (WiserKnxAuthError, WiserKnxConnectionError) as err:
                 _LOGGER.debug("deviceInfo not available: %s", err)
                 device_id = None
         except WiserKnxAuthError:
             return "invalid_auth"
         except WiserKnxConnectionError as err:
-            _LOGGER.debug("Cannot connect to Wiser for KNX at %s: %s", host, err, exc_info=True)
+            _LOGGER.debug(
+                "Cannot connect to Wiser for KNX at %s: %s", host, err, exc_info=True
+            )
             return "cannot_connect"
         except Exception:  # noqa: BLE001 - last resort so the form never crashes
-            _LOGGER.exception("Unexpected error connecting to Wiser for KNX at %s", host)
+            _LOGGER.exception(
+                "Unexpected error connecting to Wiser for KNX at %s", host
+            )
             return "unknown"
 
         # Prefer the id reported by the controller; keep the discovery id otherwise
@@ -181,7 +206,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return vol.Schema(
             {
                 vol.Required(CONF_HOST, default=self._discovered_host or ""): str,
-                vol.Required(CONF_PORT, default=self._discovered_port or DEFAULT_PORT): int,
+                vol.Required(
+                    CONF_PORT, default=self._discovered_port or DEFAULT_PORT
+                ): int,
                 vol.Optional(CONF_SSL, default=self._discovered_ssl): bool,
                 vol.Optional(CONF_VERIFY_SSL, default=DEFAULT_VERIFY_SSL): bool,
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
@@ -209,15 +236,16 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", data_schema=self._credentials_schema(), errors=errors
         )
 
-    async def async_step_zeroconf(
-        self, discovery_info: Any
-    ) -> FlowResult:
+    async def async_step_zeroconf(self, discovery_info: Any) -> FlowResult:
         """Handle discovery via Zeroconf / mDNS."""
         host = str(discovery_info.ip_address)
         hostname = str(discovery_info.hostname or "wiser-knx").rstrip(".")
         port = int(discovery_info.port or DEFAULT_PORT)
         props = discovery_info.properties or {}
-        mac = next((m for m in (normalize_mac(props.get(k)) for k in ("mac", "MAC")) if m), None)
+        mac = next(
+            (m for m in (normalize_mac(props.get(k)) for k in ("mac", "MAC")) if m),
+            None,
+        )
 
         _LOGGER.debug("Zeroconf candidate %s (%s), port %s", host, hostname, port)
 
@@ -272,7 +300,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             host = user_input[CONF_HOST].strip()
             error = await self._async_try_connect(user_input)
             if error is None:
-                self._entry_title = f"Wiser for KNX ({self._discovered_hostname or host})"
+                self._entry_title = (
+                    f"Wiser for KNX ({self._discovered_hostname or host})"
+                )
                 return await self.async_step_backup()
             errors["base"] = error
 
@@ -330,7 +360,8 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema(
             {
                 vol.Optional(
-                    CONF_USERNAME, default=entry.data.get(CONF_USERNAME) or DEFAULT_USERNAME
+                    CONF_USERNAME,
+                    default=entry.data.get(CONF_USERNAME) or DEFAULT_USERNAME,
                 ): str,
                 vol.Optional(CONF_PASSWORD, default=""): str,
             }
@@ -363,10 +394,12 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
         """Manage options."""
         if user_input is not None:
             errors: dict[str, str] = {}
-            password = user_input.get(CONF_BACKUP_PASSWORD) or self.config_entry.options.get(
+            password = user_input.get(
                 CONF_BACKUP_PASSWORD
-            )
-            if user_input.get(CONF_BACKUP_PASSWORD) and not is_valid_backup_password(password):
+            ) or self.config_entry.options.get(CONF_BACKUP_PASSWORD)
+            if user_input.get(CONF_BACKUP_PASSWORD) and not is_valid_backup_password(
+                password
+            ):
                 errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
             if not errors:
                 data = {**user_input}

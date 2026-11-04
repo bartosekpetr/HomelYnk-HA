@@ -100,7 +100,9 @@ WIDGET_BINARY_CLASSES: dict[str, str] = {
     "se-motion-sensor": "MOTION",
 }
 
-_WIDGET_ID_RE = re.compile(r"\b(se-[a-z0-9]+(?:-[a-z0-9]+)*|chart_widget|custom_widget)\b")
+_WIDGET_ID_RE = re.compile(
+    r"\b(se-[a-z0-9]+(?:-[a-z0-9]+)*|chart_widget|custom_widget)\b"
+)
 
 # Datapoint titles that represent an on/off state rather than a measurement
 _BINARY_DP_WORDS = (
@@ -134,8 +136,22 @@ _BINARY_DP_TYPES = (
     "urn:knx:dpt.switch",
 )
 _BINARY_TOKENS = frozenset(
-    {"true", "false", "on", "off", "open", "opened", "close", "closed",
-     "start", "stop", "active", "inactive", "alarm", "detected"}
+    {
+        "true",
+        "false",
+        "on",
+        "off",
+        "open",
+        "opened",
+        "close",
+        "closed",
+        "start",
+        "stop",
+        "active",
+        "inactive",
+        "alarm",
+        "detected",
+    }
 )
 
 
@@ -178,14 +194,27 @@ def _classify_by_urn(types: list[str]) -> str | None:
     if any(t == FCT_BLINDS or "blind" in t or "shutter" in t for t in types):
         return CAT_COVER
     if any(
-        t in (FCT_TEMPERATURE_AIR_FAN, FCT_GENERIC_THERMOSTAT, FCT_VDC_THERMOSTAT, FCT_ITRV)
+        t
+        in (
+            FCT_TEMPERATURE_AIR_FAN,
+            FCT_GENERIC_THERMOSTAT,
+            FCT_VDC_THERMOSTAT,
+            FCT_ITRV,
+        )
         or "thermostat" in t
         or "climate" in t
         for t in types
     ):
         return CAT_CLIMATE
     if any(
-        t in (FCT_ALARM, FCT_ALARM_DEW_POINT, FCT_ALARM_WATER, FCT_WINDOW_DOOR, FCT_MOVEMENT)
+        t
+        in (
+            FCT_ALARM,
+            FCT_ALARM_DEW_POINT,
+            FCT_ALARM_WATER,
+            FCT_WINDOW_DOOR,
+            FCT_MOVEMENT,
+        )
         or "alarm" in t
         or "windowdoor" in t
         or "movement" in t
@@ -213,7 +242,8 @@ def _classify_by_datapoints(func: dict[str, Any]) -> str | None:
     if any(w in joined for w in ("height position", "slat position", "slats position")):
         return CAT_COVER
     if "setpoint" in joined and any(
-        w in joined for w in ("operation mode", "heating", "cooling", "hvac", "temperature")
+        w in joined
+        for w in ("operation mode", "heating", "cooling", "hvac", "temperature")
     ):
         return CAT_CLIMATE
     if "scene" in joined and "value" not in joined:
@@ -259,7 +289,11 @@ def binary_device_class(func: dict[str, Any]) -> str | None:
     if widget and widget in WIDGET_BINARY_CLASSES:
         return WIDGET_BINARY_CLASSES[widget]
 
-    haystack = " ".join(func.get("types", [])).lower() + " " + (func.get("title") or "").lower()
+    haystack = (
+        " ".join(func.get("types", [])).lower()
+        + " "
+        + (func.get("title") or "").lower()
+    )
     for words, device_class in (
         (("water", "leak", "flood"), "MOISTURE"),
         (("smoke", "fire"), "SMOKE"),

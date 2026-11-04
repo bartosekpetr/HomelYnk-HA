@@ -26,14 +26,24 @@ sys.path.insert(0, str(ROOT))
 
 # The package __init__ imports Home Assistant; stub it so this runs standalone.
 for _mod in (
-    "homeassistant", "homeassistant.const", "homeassistant.core",
-    "homeassistant.config_entries", "homeassistant.exceptions",
-    "homeassistant.helpers", "homeassistant.helpers.aiohttp_client",
-    "homeassistant.helpers.update_coordinator", "homeassistant.helpers.entity",
-    "homeassistant.helpers.entity_platform", "homeassistant.components",
-    "homeassistant.components.binary_sensor", "aiohttp", "voluptuous",
-    "homeassistant.helpers.event", "homeassistant.helpers.device_registry",
-    "homeassistant.util", "homeassistant.util.dt",
+    "homeassistant",
+    "homeassistant.const",
+    "homeassistant.core",
+    "homeassistant.config_entries",
+    "homeassistant.exceptions",
+    "homeassistant.helpers",
+    "homeassistant.helpers.aiohttp_client",
+    "homeassistant.helpers.update_coordinator",
+    "homeassistant.helpers.entity",
+    "homeassistant.helpers.entity_platform",
+    "homeassistant.components",
+    "homeassistant.components.binary_sensor",
+    "aiohttp",
+    "voluptuous",
+    "homeassistant.helpers.event",
+    "homeassistant.helpers.device_registry",
+    "homeassistant.util",
+    "homeassistant.util.dt",
 ):
     sys.modules.setdefault(_mod, MagicMock())
 
@@ -73,8 +83,13 @@ def anonymise(raw: dict) -> dict:
             ids[key] = f"{prefix}-{counters[prefix]}"
         return ids[key]
 
-    text_keys = {"title", "schneider:titleBase", "schneider:alarmText",
-                 "schneider:parentFunctionName", "schneider:parentLocationName"}
+    text_keys = {
+        "title",
+        "schneider:titleBase",
+        "schneider:alarmText",
+        "schneider:parentFunctionName",
+        "schneider:parentLocationName",
+    }
     id_keys = {"schneider:parentFunction": "id", "schneider:parentLocation": "id"}
     uuid_re = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F-]{20,}")
 
@@ -113,9 +128,12 @@ def parse(raw: dict):
     for item in raw["datapoints"].get("data", []):
         a, m = item.get("attributes", {}), item.get("meta", {})
         dps[str(item.get("id"))] = {
-            "title": a.get("title", ""), "unit": a.get("unit", ""),
-            "value_type": a.get("valueType"), "value": a.get("value"),
-            "writable": a.get("writable", False), "enum": a.get("enum", []),
+            "title": a.get("title", ""),
+            "unit": a.get("unit", ""),
+            "value_type": a.get("valueType"),
+            "value": a.get("value"),
+            "writable": a.get("writable", False),
+            "enum": a.get("enum", []),
             "parent_function_id": a.get("schneider:parentFunction"),
             "types": m.get("@type", []),
         }
@@ -125,20 +143,24 @@ def parse(raw: dict):
         a = item.get("attributes", {})
         fid = str(item.get("id"))
         func = {
-            "id": fid, "title": a.get("title", ""),
+            "id": fid,
+            "title": a.get("title", ""),
             "types": item.get("meta", {}).get("@type", []),
             "widget_id": a.get("schneider:widgetId"),
             "widget_settings": a.get("schneider:widgetSettings"),
-            "datapoints": {k: d for k, d in dps.items()
-                           if str(d["parent_function_id"]) == fid},
+            "datapoints": {
+                k: d for k, d in dps.items() if str(d["parent_function_id"]) == fid
+            },
         }
-        summary.append({
-            "widget_id": func["widget_id"],
-            "widget_type": detect_widget_type(func),
-            "category": classify_function(func),
-            "binary_class": binary_device_class(func),
-            "has_urns": bool(func["types"]),
-        })
+        summary.append(
+            {
+                "widget_id": func["widget_id"],
+                "widget_type": detect_widget_type(func),
+                "category": classify_function(func),
+                "binary_class": binary_device_class(func),
+                "has_urns": bool(func["types"]),
+            }
+        )
     return summary
 
 
@@ -156,9 +178,12 @@ def main() -> int:
         print(f"Fetching {name} ...")
         raw[name] = fetch(host, auth, name)
 
-    (ROOT / "wiser_dump_raw.json").write_text(json.dumps(raw, indent=2), encoding="utf-8")
+    (ROOT / "wiser_dump_raw.json").write_text(
+        json.dumps(raw, indent=2), encoding="utf-8"
+    )
     (ROOT / "wiser_dump_anon.json").write_text(
-        json.dumps(anonymise(raw), indent=2), encoding="utf-8")
+        json.dumps(anonymise(raw), indent=2), encoding="utf-8"
+    )
 
     summary = parse(raw)
     print("\nClassification result (no names shown):")
@@ -168,8 +193,10 @@ def main() -> int:
         print(f"  {n:3d} x category={cat:<14} widget={wtype}  binary_class={cls}")
     missing = sum(1 for s in summary if not s["widget_type"])
     print(f"\nFunctions without a detected widget type: {missing}/{len(summary)}")
-    print("Distinct schneider:widgetId values:",
-          sorted({str(s["widget_id"]) for s in summary}))
+    print(
+        "Distinct schneider:widgetId values:",
+        sorted({str(s["widget_id"]) for s in summary}),
+    )
     print("\nWrote wiser_dump_raw.json (PRIVATE) and wiser_dump_anon.json (shareable).")
     return 0
 

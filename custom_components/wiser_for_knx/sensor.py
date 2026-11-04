@@ -63,7 +63,9 @@ class WiserKnxLastBackupSensor(SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False
 
-    def __init__(self, coordinator: WiserKnxDataUpdateCoordinator, entry_id: str) -> None:
+    def __init__(
+        self, coordinator: WiserKnxDataUpdateCoordinator, entry_id: str
+    ) -> None:
         """Initialize the sensor."""
         self._manager = coordinator.backup_manager
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_last_backup"
@@ -124,7 +126,9 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Wiser for KNX backup and health sensors."""
     coordinator: WiserKnxDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
-    entities: list[SensorEntity] = [WiserKnxLastBackupSensor(coordinator, entry.entry_id)]
+    entities: list[SensorEntity] = [
+        WiserKnxLastBackupSensor(coordinator, entry.entry_id)
+    ]
     if coordinator.health is not None:
         entities.extend(
             WiserKnxHealthSensor(coordinator.health, coordinator, entry.entry_id, desc)

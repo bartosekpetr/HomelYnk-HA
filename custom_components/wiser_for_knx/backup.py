@@ -14,7 +14,12 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
 from .api import WiserKnxClient
-from .backup_utils import backup_filename, is_valid_backup_password, list_backups, prune_backups
+from .backup_utils import (
+    backup_filename,
+    is_valid_backup_password,
+    list_backups,
+    prune_backups,
+)
 from .const import BACKUP_DIR, BACKUP_KINDS, DOMAIN
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,7 +37,9 @@ async def async_pre_backup(hass: HomeAssistant) -> None:
             await manager.async_create_backup()
         except HomeAssistantError as err:
             # Never block the Home Assistant backup because the controller is unreachable.
-            _LOGGER.warning("Controller backup before Home Assistant backup failed: %s", err)
+            _LOGGER.warning(
+                "Controller backup before Home Assistant backup failed: %s", err
+            )
 
 
 async def async_post_backup(hass: HomeAssistant) -> None:

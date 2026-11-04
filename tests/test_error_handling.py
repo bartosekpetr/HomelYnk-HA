@@ -36,7 +36,9 @@ def _client(get):
     session = MagicMock()
     session.closed = False
     session.get = get
-    return WiserKnxClient(host="wiser.local", username="admin", password="pw", session=session)
+    return WiserKnxClient(
+        host="wiser.local", username="admin", password="pw", session=session
+    )
 
 
 def _coordinator(client):
@@ -78,7 +80,9 @@ def test_unauthorized_raises_auth_error(status):
 
 def test_empty_installation_is_still_success():
     """A genuine 200 with no data is a valid, empty result."""
-    result = asyncio.run(_client(lambda *a, **k: _FakeResponse(200, {"data": []})).get_locations())
+    result = asyncio.run(
+        _client(lambda *a, **k: _FakeResponse(200, {"data": []})).get_locations()
+    )
     assert result == {}
 
 

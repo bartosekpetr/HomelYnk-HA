@@ -107,7 +107,11 @@ class WiserKnxClient:
                         self.api_base = api_base
                     _LOGGER.info("Discovered KNX API base: %s", self.api_base)
         except Exception as err:
-            _LOGGER.debug("Well-known probe notice: %s (using default base %s)", err, self.api_base)
+            _LOGGER.debug(
+                "Well-known probe notice: %s (using default base %s)",
+                err,
+                self.api_base,
+            )
 
         return {
             "api_base": self.api_base,
@@ -157,9 +161,13 @@ class WiserKnxClient:
                 if resp.status == 200:
                     return True
                 if resp.status in (401, 403):
-                    _LOGGER.warning("Authentication failed (HTTP %s) at %s", resp.status, url)
+                    _LOGGER.warning(
+                        "Authentication failed (HTTP %s) at %s", resp.status, url
+                    )
                     return False
-                raise WiserKnxConnectionError(f"Unexpected HTTP {resp.status} from {url}")
+                raise WiserKnxConnectionError(
+                    f"Unexpected HTTP {resp.status} from {url}"
+                )
         except aiohttp.ClientError as err:
             raise WiserKnxConnectionError(f"Connection failed to {url}: {err}") from err
         except asyncio.TimeoutError as err:
@@ -205,7 +213,9 @@ class WiserKnxClient:
                     "id": loc_id,
                     "type": item.get("type"),  # site, floor, room
                     "title": item.get("attributes", {}).get("title", ""),
-                    "parent_id": item.get("attributes", {}).get("schneider:parentLocation"),
+                    "parent_id": item.get("attributes", {}).get(
+                        "schneider:parentLocation"
+                    ),
                 }
         return locations
 
@@ -235,7 +245,9 @@ class WiserKnxClient:
                 "alarm_text": item.get("attributes", {}).get("schneider:alarmText"),
                 "widget_id": item.get("attributes", {}).get("schneider:widgetId"),
                 "title_base": item.get("attributes", {}).get("schneider:titleBase"),
-                "widget_settings": item.get("attributes", {}).get("schneider:widgetSettings"),
+                "widget_settings": item.get("attributes", {}).get(
+                    "schneider:widgetSettings"
+                ),
                 "datapoints": {},  # Will be populated with associated datapoints
             }
         return functions

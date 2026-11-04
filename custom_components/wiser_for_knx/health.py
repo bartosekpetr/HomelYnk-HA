@@ -22,10 +22,14 @@ def parse_health(device_info: dict[str, Any], status: dict[str, Any]) -> dict[st
     data_part = next((p for p in partitions if p.get("MountedOn") == "/data"), None)
     storage = None
     if data_part and data_part.get("TotalSize"):
-        storage = _percent(data_part["TotalSize"] - data_part.get("Free", 0), data_part["TotalSize"])
+        storage = _percent(
+            data_part["TotalSize"] - data_part.get("Free", 0), data_part["TotalSize"]
+        )
 
     # "used" in the controller output excludes buffers/cache, so it reflects real usage
-    mem_percent = _percent(memory.get("used", 0), memory.get("total", 0)) if memory else None
+    mem_percent = (
+        _percent(memory.get("used", 0), memory.get("total", 0)) if memory else None
+    )
 
     return {
         "device_id": stable_id_from_device_info(device_info),

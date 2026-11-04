@@ -92,7 +92,9 @@ def main() -> int:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     for name, path in BACKUPS.items():
         try:
-            status, headers, body = request(host, auth, path, {"data": {"password": pwd}})
+            status, headers, body = request(
+                host, auth, path, {"data": {"password": pwd}}
+            )
             out = ROOT / f"wiser_backup_{name}_{stamp}.bin"
             out.write_bytes(body)
             probe[path] = {
@@ -111,7 +113,9 @@ def main() -> int:
             probe[path] = {"error": str(err)}
             print(f"POST {path}: {err}")
 
-    (ROOT / "wiser_mgmt_probe.json").write_text(json.dumps(probe, indent=2), encoding="utf-8")
+    (ROOT / "wiser_mgmt_probe.json").write_text(
+        json.dumps(probe, indent=2), encoding="utf-8"
+    )
     print("\nWrote wiser_mgmt_probe.json. Keep it and the .bin files private.")
     return 0
 

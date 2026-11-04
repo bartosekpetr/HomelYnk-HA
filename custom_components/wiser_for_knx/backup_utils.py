@@ -38,11 +38,17 @@ def list_backups(directory: Path, host: str) -> list[Path]:
     if not directory.is_dir():
         return []
     prefix = f"wiser_{safe_host(host)}_"
-    files = [p for p in directory.iterdir() if p.is_file() and p.name.startswith(prefix) and p.suffix == ".zip"]
+    files = [
+        p
+        for p in directory.iterdir()
+        if p.is_file() and p.name.startswith(prefix) and p.suffix == ".zip"
+    ]
     return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
-def prune_backups(directory: Path, host: str, kinds: list[str], keep: int) -> list[Path]:
+def prune_backups(
+    directory: Path, host: str, kinds: list[str], keep: int
+) -> list[Path]:
     """Delete all but the newest `keep` backups of each kind; return the deleted files."""
     removed: list[Path] = []
     if keep < 1:

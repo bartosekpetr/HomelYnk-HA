@@ -49,7 +49,9 @@ if importlib.util.find_spec("homeassistant") is None:
     _config_entries = sys.modules["homeassistant.config_entries"]
     _config_entries.ConfigFlow = _MockConfigFlow
     _config_entries.OptionsFlow = _MockConfigFlow
-    ha_mock.config_entries = _config_entries  # `from homeassistant import config_entries`
+    ha_mock.config_entries = (
+        _config_entries  # `from homeassistant import config_entries`
+    )
 
     class _BaseMockCoordinator:
         def __init__(self, *args, **kwargs):

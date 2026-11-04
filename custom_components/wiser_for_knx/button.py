@@ -31,7 +31,9 @@ class WiserKnxBackupButton(ButtonEntity):
     _attr_icon = "mdi:cloud-download-outline"
     _attr_entity_category = EntityCategory.CONFIG
 
-    def __init__(self, coordinator: WiserKnxDataUpdateCoordinator, entry_id: str) -> None:
+    def __init__(
+        self, coordinator: WiserKnxDataUpdateCoordinator, entry_id: str
+    ) -> None:
         """Initialize the button."""
         self._coordinator = coordinator
         self._attr_unique_id = f"{DOMAIN}_{entry_id}_create_backup"

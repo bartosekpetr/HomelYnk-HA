@@ -44,8 +44,14 @@ def test_urn_classification():
     assert classify_function(_func(types=["urn:knx:fct.blindsVertical"])) == "cover"
     assert classify_function(_func(types=["urn:knx:fct.VDCThermostat"])) == "climate"
     assert classify_function(_func(types=["urn:knx:fct.alarmWater"])) == "binary_sensor"
-    assert classify_function(_func(types=["urn:knx:fct.windowDoorSensor"])) == "binary_sensor"
-    assert classify_function(_func(types=["urn:knx:fct.movementDetector"])) == "binary_sensor"
+    assert (
+        classify_function(_func(types=["urn:knx:fct.windowDoorSensor"]))
+        == "binary_sensor"
+    )
+    assert (
+        classify_function(_func(types=["urn:knx:fct.movementDetector"]))
+        == "binary_sensor"
+    )
     assert classify_function(_func(types=["urn:knx:fct.power"])) == "sensor"
     assert classify_function(_func(types=["urn:knx:fct.weather"])) == "sensor"
 
@@ -81,7 +87,10 @@ def test_binary_device_classes():
     assert binary_device_class(_func(settings={"t": "se-alarm-water"})) == "MOISTURE"
     assert binary_device_class(_func(settings={"t": "se-motion-sensor"})) == "MOTION"
     assert binary_device_class(_func(title="Gas leak")) == "MOISTURE"
-    assert binary_device_class(_func(types=["urn:knx:fct.alarm"], title="Siren")) == "SAFETY"
+    assert (
+        binary_device_class(_func(types=["urn:knx:fct.alarm"], title="Siren"))
+        == "SAFETY"
+    )
     assert binary_device_class(_func(title="Hallway")) is None
 
 
@@ -97,26 +106,64 @@ def test_binary_datapoint_selection():
 def test_binary_datapoints_use_type_and_value_not_title():
     # Titles on a real controller are user-defined group object names.
     func = _func()
-    assert is_binary_datapoint(func, {"title": "switch 0n Off", "types": ["dic:dpa.810.51"], "value": "false"})
-    assert is_binary_datapoint(func, {"title": "x", "types": ["dic:dpa.811.51"], "value": "close"})
-    assert is_binary_datapoint(func, {"title": "x", "types": ["dic:dpa.414.63"], "value": "start"})
-    assert is_binary_datapoint(func, {"title": "x", "types": ["dic:dpa.344.51"], "value": None})
+    assert is_binary_datapoint(
+        func, {"title": "switch 0n Off", "types": ["dic:dpa.810.51"], "value": "false"}
+    )
+    assert is_binary_datapoint(
+        func, {"title": "x", "types": ["dic:dpa.811.51"], "value": "close"}
+    )
+    assert is_binary_datapoint(
+        func, {"title": "x", "types": ["dic:dpa.414.63"], "value": "start"}
+    )
+    assert is_binary_datapoint(
+        func, {"title": "x", "types": ["dic:dpa.344.51"], "value": None}
+    )
 
 
 def test_numeric_and_uuid_datapoints_are_not_binary():
     func = _func()
-    assert not is_binary_datapoint(func, {"title": "Motion lux", "types": ["dic:dpa.414.62"], "value": "2200.32"})
-    assert not is_binary_datapoint(func, {"title": "Detection", "types": ["dic:dpa.65533.51"], "value": "77"})
-    assert not is_binary_datapoint(func, {"title": "Alarm trigger", "types": ["urn:knx:dpt.uuid"], "value": "0000"})
+    assert not is_binary_datapoint(
+        func, {"title": "Motion lux", "types": ["dic:dpa.414.62"], "value": "2200.32"}
+    )
+    assert not is_binary_datapoint(
+        func, {"title": "Detection", "types": ["dic:dpa.65533.51"], "value": "77"}
+    )
+    assert not is_binary_datapoint(
+        func, {"title": "Alarm trigger", "types": ["urn:knx:dpt.uuid"], "value": "0000"}
+    )
 
 
 def test_real_controller_function_urns():
-    assert classify_function(_func(types=["urn:knx:fct.temperatureAirFan"])) == "climate"
-    assert classify_function(_func(types=["urn:knx:fct.genericThermostat", "urn:knx:fct.schneider.logicThermostat.type.thermostat"])) == "climate"
+    assert (
+        classify_function(_func(types=["urn:knx:fct.temperatureAirFan"])) == "climate"
+    )
+    assert (
+        classify_function(
+            _func(
+                types=[
+                    "urn:knx:fct.genericThermostat",
+                    "urn:knx:fct.schneider.logicThermostat.type.thermostat",
+                ]
+            )
+        )
+        == "climate"
+    )
     assert classify_function(_func(types=["urn:knx:fct.iTRV"])) == "climate"
-    assert classify_function(_func(types=["urn:knx:fct.alarmDewPoint"])) == "binary_sensor"
+    assert (
+        classify_function(_func(types=["urn:knx:fct.alarmDewPoint"])) == "binary_sensor"
+    )
     assert classify_function(_func(types=["urn:knx:fct.alarmLight"])) == "binary_sensor"
     assert classify_function(_func(types=["urn:knx:fct.alarmAutomation"])) == "skip"
-    assert classify_function(_func(types=["urn:knx:fct.power", "urn:knx:fct.schneider.power.group.invertor"])) == "sensor"
+    assert (
+        classify_function(
+            _func(
+                types=[
+                    "urn:knx:fct.power",
+                    "urn:knx:fct.schneider.power.group.invertor",
+                ]
+            )
+        )
+        == "sensor"
+    )
     assert classify_function(_func(types=["urn:knx:fct.gasSensor"])) == "sensor"
     assert classify_function(_func(types=["urn:knx:fct.info"])) == "sensor"
