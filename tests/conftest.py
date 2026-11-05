@@ -17,6 +17,8 @@ except ImportError:
 
 # If homeassistant is not installed in the local python environment, mock minimal stubs
 if importlib.util.find_spec("homeassistant") is None:
+    # Tests that need the real HA harness cannot run against these stubs
+    collect_ignore = ["test_options_flow_real.py"]
     ha_mock = MagicMock()
     sys.modules["homeassistant"] = ha_mock
     sys.modules["homeassistant.config_entries"] = MagicMock()

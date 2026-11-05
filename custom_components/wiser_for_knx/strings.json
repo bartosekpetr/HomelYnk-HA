@@ -87,17 +87,20 @@
           "backup_password": "Backup password",
           "backup_interval_hours": "Automatic backup interval (hours, 0 = off)",
           "backup_keep": "Number of backups to keep",
+          "port": "Port",
           "plain_http": "Use plain HTTP instead of HTTPS (insecure — the controller password is sent unencrypted)",
           "skip_verify": "Skip certificate verification (insecure)"
         },
         "data_description": {
-          "plain_http": "Leave off. With this on, the controller username and password, and the backup password, are sent unencrypted and can be read by anyone on your network. Only turn it on if the controller cannot serve HTTPS. Changing this does not change the port; adjust the port by re-adding the controller if it differs.",
+          "port": "The controller port, 1 to 65535. Switching plain HTTP on or off changes a port left at 443 or 80 to the matching default (80 or 443); any other port is kept as entered.",
+          "plain_http": "Leave off. With this on, the controller username and password, and the backup password, are sent unencrypted and can be read by anyone on your network. Only turn it on if the controller cannot serve HTTPS.",
           "skip_verify": "Off is recommended. Turning it on removes any trusted certificate fingerprint. Turning it off again re-checks the certificate and asks you to confirm its fingerprint if it is self-signed."
         }
       }
     },
     "error": {
-      "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit."
+      "invalid_backup_password": "The backup password must have at least 8 characters, with an uppercase letter, a lowercase letter and a digit.",
+      "invalid_port": "The port must be a number from 1 to 65535."
     }
   },
   "services": {

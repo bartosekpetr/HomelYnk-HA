@@ -59,6 +59,12 @@ from .tls import async_fetch_fingerprint, format_fingerprint
 _LOGGER = logging.getLogger(__name__)
 
 
+MIN_PORT = 1
+MAX_PORT = 65535
+HTTP_PORT = 80
+HTTPS_PORT = 443
+
+
 class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Wiser for KNX."""
 
@@ -533,11 +539,15 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
                 password
             ):
                 errors[CONF_BACKUP_PASSWORD] = "invalid_backup_password"
+            port = user_input.get(CONF_PORT)
+            if port is not None and not MIN_PORT <= port <= MAX_PORT:
+                errors[CONF_PORT] = "invalid_port"
             if not errors:
                 data = {**user_input}
                 skip = data.pop(CONF_SKIP_VERIFY, False)
                 plain = data.pop(CONF_PLAIN_HTTP, False)
-                self._apply_transport_choice(plain, skip)
+                port = data.pop(CONF_PORT, None)
+                self._apply_transport_choice(plain, skip, port)
                 if password:
                     data[CONF_BACKUP_PASSWORD] = password
                 return self.async_create_entry(title="", data=data)
@@ -545,12 +555,29 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
 
         return self._show_form({})
 
-    def _apply_transport_choice(self, plain: bool, skip: bool) -> None:
-        """Store the transport choices. Skipping drops any pin: the two modes are exclusive."""
+    def _apply_transport_choice(
+        self, plain: bool, skip: bool, port: int | None = None
+    ) -> None:
+        """Store the transport and port choices.
+
+        Skipping drops any pin: the two modes are exclusive. No connection is made
+        here, so no credentials are sent; an unverifiable certificate makes the
+        reloaded entry start reauth, which asks before trusting it.
+        """
         entry = self.config_entry
         data = dict(entry.data)
+        stored_port = entry.data.get(CONF_PORT, DEFAULT_PORT)
+        port = stored_port if port is None else port
         if plain == entry.data.get(CONF_SSL, DEFAULT_SSL):
             data[CONF_SSL] = not plain
+            # Suggest the matching default only when the port was left at the old
+            # scheme's default; a port the user set to anything else is kept.
+            if CONF_PORT in entry.data and port == stored_port == (
+                HTTPS_PORT if plain else HTTP_PORT
+            ):
+                port = HTTP_PORT if plain else HTTPS_PORT
+        if port != stored_port:
+            data[CONF_PORT] = port
         if skip != (not entry.data.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)):
             data[CONF_VERIFY_SSL] = not skip
             if skip:
@@ -569,6 +596,10 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
                     CONF_SCAN_INTERVAL,
                     default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
                 ): vol.All(int, vol.Range(min=2, max=120)),
+                vol.Optional(
+                    CONF_PORT,
+                    default=self.config_entry.data.get(CONF_PORT, DEFAULT_PORT),
+                ): int,
                 vol.Optional(
                     CONF_PLAIN_HTTP,
                     default=not self.config_entry.data.get(CONF_SSL, DEFAULT_SSL),

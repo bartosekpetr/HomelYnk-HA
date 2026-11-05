@@ -415,3 +415,96 @@ def test_options_flow_switches_transport_without_touching_other_data():
             entry,
             data={"host": "h", config_flow.CONF_SSL: False, CONF_VERIFY_SSL: True},
         )
+
+
+def _options_handler(data):
+    entry = SimpleNamespace(data=data, options={})
+    handler = config_flow.WiserKnxOptionsFlowHandler()
+    handler.hass = MagicMock()
+    handler.hass.config_entries.async_update_entry = MagicMock()
+    patcher = patch.object(
+        config_flow.WiserKnxOptionsFlowHandler, "config_entry", entry, create=True
+    )
+    return handler, entry, patcher
+
+
+def _stored_data(handler, entry):
+    calls = handler.hass.config_entries.async_update_entry.call_args_list
+    return calls[-1].kwargs["data"] if calls else entry.data
+
+
+@pytest.mark.parametrize(
+    ("stored_port", "stored_ssl", "plain", "port", "expected_port"),
+    [
+        (80, False, False, 80, 443),  # untick plain HTTP on the default HTTP port
+        (443, True, True, 443, 80),  # tick plain HTTP on the default HTTPS port
+        (8443, True, True, 8443, 8443),  # deliberate port is kept
+        (8080, False, False, 8080, 8080),
+        (80, False, False, 8443, 8443),  # explicit edit wins over the suggestion
+        (443, True, False, 443, 443),  # no transport change, nothing suggested
+    ],
+)
+def test_options_port_edit_and_suggestion(
+    stored_port, stored_ssl, plain, port, expected_port
+):
+    handler, entry, patcher = _options_handler(
+        {
+            "host": "h",
+            config_flow.CONF_PORT: stored_port,
+            config_flow.CONF_SSL: stored_ssl,
+            CONF_VERIFY_SSL: True,
+        }
+    )
+    with patcher:
+        handler._apply_transport_choice(plain=plain, skip=False, port=port)
+        assert _stored_data(handler, entry)[config_flow.CONF_PORT] == expected_port
+
+
+def test_options_saving_unchanged_leaves_entry_untouched():
+    handler, _, patcher = _options_handler(
+        {
+            "host": "h",
+            config_flow.CONF_PORT: 80,
+            config_flow.CONF_SSL: False,
+            CONF_VERIFY_SSL: True,
+        }
+    )
+    with patcher:
+        handler._apply_transport_choice(plain=True, skip=False, port=80)
+        handler.hass.config_entries.async_update_entry.assert_not_called()
+
+
+@pytest.mark.parametrize("port", [0, -1, 65536, 99999])
+def test_options_flow_rejects_out_of_range_port(port):
+    handler, _, patcher = _options_handler(
+        {"host": "h", config_flow.CONF_PORT: 443, config_flow.CONF_SSL: True}
+    )
+    handler.async_show_form = MagicMock(side_effect=lambda **kw: kw)
+    handler.async_create_entry = MagicMock()
+    with patcher:
+        result = asyncio.run(handler.async_step_init({config_flow.CONF_PORT: port}))
+    assert result["errors"] == {config_flow.CONF_PORT: "invalid_port"}
+    handler.async_create_entry.assert_not_called()
+    handler.hass.config_entries.async_update_entry.assert_not_called()
+
+
+def test_options_flow_never_connects():
+    """SMA-15: the options flow sends no request, so no credentials leave unverified."""
+    handler, _, patcher = _options_handler(
+        {"host": "h", config_flow.CONF_PORT: 80, config_flow.CONF_SSL: False}
+    )
+    handler.async_create_entry = MagicMock()
+    with (
+        patcher,
+        patch.object(config_flow, "WiserKnxClient") as client,
+        patch.object(config_flow, "async_fetch_fingerprint") as fingerprint,
+        patch.object(config_flow, "async_get_clientsession") as session,
+    ):
+        asyncio.run(
+            handler.async_step_init(
+                {config_flow.CONF_PORT: 443, config_flow.CONF_PLAIN_HTTP: False}
+            )
+        )
+    client.assert_not_called()
+    fingerprint.assert_not_called()
+    session.assert_not_called()
