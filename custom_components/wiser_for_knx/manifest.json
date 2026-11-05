@@ -1,8 +1,21 @@
 {
   "domain": "wiser_for_knx",
   "name": "Wiser for KNX",
-  "codeowners": ["@bartosekpetr"],
+  "codeowners": [
+    "@bartosekpetr"
+  ],
   "config_flow": true,
+  "dhcp": [
+    {
+      "macaddress": "000CC6*"
+    },
+    {
+      "macaddress": "000054*"
+    },
+    {
+      "macaddress": "E04F43*"
+    }
+  ],
   "documentation": "https://github.com/bartosekpetr/HomelYnk-HA",
   "integration_type": "hub",
   "iot_class": "local_polling",
@@ -21,17 +34,6 @@
     {
       "type": "_http._tcp.local.",
       "name": "logicmachine*"
-    }
-  ],
-  "dhcp": [
-    {
-      "macaddress": "000CC6*"
-    },
-    {
-      "macaddress": "000054*"
-    },
-    {
-      "macaddress": "E04F43*"
     }
   ]
 }
