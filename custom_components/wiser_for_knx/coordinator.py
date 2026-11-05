@@ -17,6 +17,7 @@ from .api import (
     WiserKnxCertificateError,
     WiserKnxClient,
     WiserKnxConnectionError,
+    format_datapoint_value,
 )
 from .const import (
     DEFAULT_SCAN_INTERVAL,
@@ -207,7 +208,9 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         success = await self.client.write_datapoint_value(datapoint_id, value)
         if success and self.data and "datapoints" in self.data:
             if datapoint_id in self.data["datapoints"]:
-                self.data["datapoints"][datapoint_id]["value"] = str(value)
+                self.data["datapoints"][datapoint_id]["value"] = format_datapoint_value(
+                    value
+                )
                 self.async_update_listeners()
         return success
 

@@ -31,6 +31,18 @@ class WiserKnxFingerprintMismatchError(WiserKnxCertificateError):
     """Raised when the certificate does not match the pinned fingerprint."""
 
 
+def format_datapoint_value(value: Any) -> str:
+    """Return the string the controller speaks for a datapoint value.
+
+    The controller reports and accepts datapoint values as strings, with
+    booleans as ``on``/``off``. The same form is used for the request body and
+    for the optimistic local state so the two cannot diverge.
+    """
+    if isinstance(value, bool):
+        return "on" if value else "off"
+    return str(value)
+
+
 def _connection_error(
     message: str, err: aiohttp.ClientError
 ) -> WiserKnxConnectionError:
@@ -393,9 +405,7 @@ class WiserKnxClient:
         timeout = aiohttp.ClientTimeout(total=8)
 
         url = f"{self.base_url}{self.api_base}/datapoints/values"
-        val_str = str(value)
-        if isinstance(value, bool):
-            val_str = "on" if value else "off"
+        val_str = format_datapoint_value(value)
 
         payload = {
             "data": [
