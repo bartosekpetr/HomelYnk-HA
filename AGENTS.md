@@ -84,4 +84,4 @@ Open / unverified:
 - A 404 was seen once on the *initial* automatic backup (HTTP 404 from a backup endpoint) while the button worked; v0.5.1 names the failing endpoint and retries once. Check the log if it recurs.
 - Socket-switch power datapoints (`dpt.power`, W) are ignored now that sensors were removed.
 - RGB/RGBW and DALI lights are classified as lights but only on/off and brightness are implemented (no colour control).
-- Not implemented: backup download from the HA UI, copying backups elsewhere (e.g. `/media`), diagnostic sensors from `/custom/deviceInfo` and `/flashsys/Status/SystemStatus`, CI workflow (HACS/hassfest validation), changelog file.
+- Not implemented: backup download from the HA UI, copying backups elsewhere (e.g. `/media`), diagnostic sensors from `/custom/deviceInfo` and `/flashsys/Status/SystemStatus`.
