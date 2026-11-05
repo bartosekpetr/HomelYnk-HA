@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.7.0-beta.2 - 2026-11-05
 
 - Optimistic datapoint state now uses the same value format as the request sent to the controller (`on`/`off` for booleans). No current control writes a boolean, so this does not change behaviour today; it keeps the local state and the write from diverging.
 - The options flow now has a *Port* field, prefilled from the stored port and validated to 1–65535. Opening and saving options without changes leaves the entry as it was. Switching *Use plain HTTP* moves a port that was at the old default (443 or 80) to the new one (80 or 443); any other port is kept as entered. The options flow still makes no connection to the controller.
