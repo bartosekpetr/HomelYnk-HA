@@ -4,7 +4,7 @@
 
 # Home Assistant Integration for Wiser for KNX (Local API)
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/default)
+[![Open your Home Assistant instance and open a repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=bartosekpetr&repository=HomelYnk-HA&category=integration)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (and compatible **spaceLYnk** / **LogicMachine** controllers) using their local API.
@@ -34,7 +34,17 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 
 ## 🚀 Installation
 
-### Option 1: Via HACS (Recommended)
+### Option 1: Via the Marketplace (Home Assistant 2026.11 and newer)
+
+From 2026.11, Home Assistant includes HACS as the **Marketplace**, so there is no separate HACS to open.
+
+1. Click the badge at the top of this page. It opens this repository in the Marketplace of your own Home Assistant instance.
+2. Download **Wiser for KNX**.
+3. Restart Home Assistant.
+
+The badge needs [My Home Assistant](https://my.home-assistant.io/) to be set up with your instance's address.
+
+### Option 2: Via HACS (Home Assistant before 2026.11)
 
 1. Open **HACS** in your Home Assistant instance.
 2. Click the three dots in the top right corner and choose **Custom repositories**.
@@ -46,7 +56,11 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
 5. Click **Add**, find **Wiser for KNX**, and click **Download**.
 6. Restart Home Assistant.
 
-### Option 2: Manual Installation
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=bartosekpetr&repository=HomelYnk-HA&category=integration)
+
+The `hacs_repository` link above takes the same parameters and works on both sides of 2026.11.
+
+### Option 3: Manual Installation
 
 1. Copy the `custom_components/wiser_for_knx` folder from this repository into your Home Assistant's `config/custom_components/` directory:
    ```text

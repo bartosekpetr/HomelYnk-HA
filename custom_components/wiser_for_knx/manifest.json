@@ -1,6 +1,9 @@
 {
   "domain": "wiser_for_knx",
   "name": "Wiser for KNX",
+  "categories": [
+    "hubs_protocols.building_automation"
+  ],
   "codeowners": [
     "@bartosekpetr"
   ],
