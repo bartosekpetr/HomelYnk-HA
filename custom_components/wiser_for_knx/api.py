@@ -4,16 +4,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 import aiohttp
 from aiohttp import BasicAuth
 
-from .const import COLLECTION_RETRIES, COLLECTION_RETRY_BACKOFF, MGMT_API_BASE
+from .const import (
+    COLLECTION_RETRIES,
+    COLLECTION_RETRY_BACKOFF,
+    DEFAULT_API_BASE,
+    MGMT_API_BASE,
+)
 from .health import parse_health
 from .tls import fingerprint_bytes
 
 _LOGGER = logging.getLogger(__name__)
+
+
+_API_BASE_RE = re.compile(r"/[A-Za-z0-9._~/-]*")
 
 
 class WiserKnxAuthError(Exception):
@@ -92,8 +101,28 @@ class WiserKnxClient:
         )  # a pin needs its own connector
         self._own_session = False
 
-        self.api_base = "/api/w4knx/3rdparty/v1"
+        self._api_base = DEFAULT_API_BASE
         self.discovered_info: dict[str, Any] = {}
+
+    @property
+    def api_base(self) -> str:
+        """Return the 3rd-party API path prefix."""
+        return self._api_base
+
+    @api_base.setter
+    def api_base(self, value: Any) -> None:
+        """Accept only a plain path; anything else falls back to the default.
+
+        The value comes from the controller's discovery response and from the
+        stored config entry. It is concatenated into request URLs that carry
+        the admin credentials, so a value such as ".evil.example/v1" must never
+        be able to change the host.
+        """
+        if isinstance(value, str) and _API_BASE_RE.fullmatch(value) and "//" not in value:
+            self._api_base = value
+        else:
+            _LOGGER.warning("Ignoring invalid API base from controller; using default")
+            self._api_base = DEFAULT_API_BASE
 
     @property
     def base_url(self) -> str:
@@ -397,6 +426,8 @@ class WiserKnxClient:
                 if resp.status != 200:
                     raise WiserKnxConnectionError(f"{path} returned HTTP {resp.status}")
                 body = await resp.json(content_type=None)
+        except TimeoutError as err:
+            raise WiserKnxConnectionError(f"Request to {path} timed out") from err
         except aiohttp.ClientError as err:
             raise _connection_error(f"Request to {path} failed: {err}", err) from err
         return (body or {}).get("data") or {}

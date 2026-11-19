@@ -121,3 +121,13 @@ def test_coordinator_401_triggers_reauth():
     coordinator = _coordinator(_client(lambda *a, **k: _FakeResponse(401)))
     with pytest.raises(ConfigEntryAuthFailed):
         asyncio.run(coordinator._async_update_data())
+
+
+def test_mgmt_timeout_raises_connection_error():
+    """A slow management API must surface as a connection error, not a bare TimeoutError."""
+
+    def get(*args, **kwargs):
+        raise TimeoutError
+
+    with pytest.raises(WiserKnxConnectionError):
+        asyncio.run(_client(get).async_get_device_info())
