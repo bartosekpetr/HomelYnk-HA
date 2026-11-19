@@ -4,6 +4,7 @@ Home Assistant custom integration **Wiser for KNX** (domain `wiser_for_knx`), re
 Unofficial project, not affiliated with Schneider Electric or the KNX Association. The icon in `brand/` is an original design; never add Schneider/KNX logos.
 
 Read this file first. Deeper references:
+- [docs/architecture.md](docs/architecture.md) – component map, the load-bearing data path and its gates, failure attribution, per-edge confidence
 - [docs/controller-api.md](docs/controller-api.md) – the two controller APIs, real-data findings, backup facts
 - [docs/development.md](docs/development.md) – setup, tests, tools, release process, Windows/proxy notes
 - [README.md](README.md) – user-facing documentation (keep it in sync with behaviour changes)
