@@ -38,6 +38,7 @@ wiser_dump_*.json
 wiser_backup_*.bin
 wiser_mgmt_probe.json
 touch_backup*.json
+live_*.json
 
 # IDE
 .vscode/

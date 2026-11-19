@@ -3,6 +3,8 @@
 import json
 import os
 
+import pytest
+
 from custom_components.wiser_for_knx.coordinator import WiserKnxDataUpdateCoordinator
 
 
@@ -83,7 +85,7 @@ def test_live_data_parsing():
     datapoints_file = os.path.join(base_dir, "live_datapoints.json")
 
     if not os.path.exists(locations_file):
-        return
+        pytest.skip("live controller dumps not present (live_*.json)")
 
     with open(locations_file, encoding="utf-8") as f:
         locs_raw = json.load(f)["data"]

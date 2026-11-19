@@ -46,7 +46,7 @@ tools/              dump_controller.py, probe_management.py (run by hand against
 hacs.json           min HA version 2024.12.0
 ```
 
-Files in the repo root that must never be committed (git-ignored): `wiser_dump_*.json`, `wiser_backup_*.bin`, `wiser_mgmt_probe.json`. They contain private installation data. `schneider_knx_iot_3rdparty_v1_openapi.json` is the vendor's public 3rd-party API spec.
+Files in the repo root that must never be committed (git-ignored): `wiser_dump_*.json`, `wiser_backup_*.bin`, `wiser_mgmt_probe.json`, `live_*.json`. They contain private installation data. `schneider_knx_iot_3rdparty_v1_openapi.json` is the vendor's public 3rd-party API spec.
 
 ## 3. How it works
 
