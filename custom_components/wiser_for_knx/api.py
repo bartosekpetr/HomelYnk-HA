@@ -118,7 +118,11 @@ class WiserKnxClient:
         the admin credentials, so a value such as ".evil.example/v1" must never
         be able to change the host.
         """
-        if isinstance(value, str) and _API_BASE_RE.fullmatch(value) and "//" not in value:
+        if (
+            isinstance(value, str)
+            and _API_BASE_RE.fullmatch(value)
+            and "//" not in value
+        ):
             self._api_base = value
         else:
             _LOGGER.warning("Ignoring invalid API base from controller; using default")

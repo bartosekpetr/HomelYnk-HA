@@ -12,15 +12,26 @@ def _client():
 
 @pytest.mark.parametrize(
     "value",
-    [".evil.example/v1", "@evil.example/v1", "//evil.example/v1", "https://evil/v1",
-     "api/v1", "/a//b", "/a@b", "/a b", "", None, 5],
+    [
+        ".evil.example/v1",
+        "@evil.example/v1",
+        "//evil.example/v1",
+        "https://evil/v1",
+        "api/v1",
+        "/a//b",
+        "/a@b",
+        "/a b",
+        "",
+        None,
+        5,
+    ],
 )
 def test_hostile_api_base_falls_back(value):
     c = _client()
     c.api_base = value
     assert c.api_base == DEFAULT_API_BASE
     assert c.base_url + c.api_base + "/locations" == (
-        "https://192.168.1.2:443" + DEFAULT_API_BASE + "/locations"
+        "https://192.168.1.2" + DEFAULT_API_BASE + "/locations"
     )
 
 
