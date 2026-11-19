@@ -42,32 +42,49 @@ class WiserKnxLight(WiserKnxBaseEntity, LightEntity):
     """Representation of a Wiser for KNX Light (on/off and dimmable)."""
 
     def _get_switch_dp(self) -> dict[str, Any] | None:
-        """Find the on/off switch datapoint."""
+        """Find the on/off switch datapoint.
+
+        Datapoints with a unit are excluded: they are the brightness (`%`) and
+        power (`W`) slots, and neither answers on/off. A dimmer that publishes
+        only its brightness therefore has no switch datapoint at all, which is
+        the correct answer — `is_on` and the turn on/off calls fall back to the
+        brightness datapoint. The datapoint type decides before the title, as
+        titles are user-defined KNX group object names.
+        """
         dps = self.function_data.get("datapoints", {})
-        for dp in dps.values():
-            types = dp.get("types", [])
-            title = (dp.get("title") or "").lower()
-            if any("dpt.switch" in t or "417.70" in t or "418.61" in t for t in types):
+        candidates = [dp for dp in dps.values() if not dp.get("unit")]
+        for dp in candidates:
+            if any(
+                "dpt.switch" in t or "417.70" in t or "418.61" in t
+                for t in dp.get("types", [])
+            ):
                 return dp
+        for dp in candidates:
+            title = (dp.get("title") or "").lower()
             if "on off" in title or "on/off" in title:
                 return dp
         # Fallback to first writable dp
-        for dp in dps.values():
+        for dp in candidates:
             if dp.get("writable"):
                 return dp
         return None
 
     def _get_brightness_dp(self) -> dict[str, Any] | None:
-        """Find the brightness / scaling datapoint."""
+        """Find the brightness / scaling datapoint.
+
+        The value is published in percent, not as the raw 0-255 KNX byte (the
+        controller converts per datapoint type: a raw 128 is published as 50),
+        so it is used as a percentage throughout and never rescaled from 255.
+        """
         dps = self.function_data.get("datapoints", {})
         for dp in dps.values():
-            types = dp.get("types", [])
-            title = (dp.get("title") or "").lower()
             if (
-                any("scaling" in t or "418.63" in t for t in types)
+                any("scaling" in t or "418.63" in t for t in dp.get("types", []))
                 or dp.get("unit") == "%"
             ):
                 return dp
+        for dp in dps.values():
+            title = (dp.get("title") or "").lower()
             if (
                 "value 8bit" in title
                 or "calculated level" in title

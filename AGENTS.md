@@ -31,10 +31,13 @@ custom_components/wiser_for_knx/
   button.py         "Create backup" button (config category)
   config_flow.py    user + zeroconf/dhcp credentials steps, then a "backup" step; options flow
   const.py          constants, PLATFORMS, KNX function URNs, backup endpoints
-  coordinator.py    DataUpdateCoordinator (polling locations/functions/datapoints); holds backup_manager
+  coordinator.py    DataUpdateCoordinator (datapoint polling + cached locations/functions,
+                    enum-verbatim writes) and the health coordinator; holds backup_manager
   entity.py         base entity + controller_device_info()
+  health.py         pure parsing of deviceInfo/SystemStatus into the health values
+  tls.py            certificate fingerprint helpers (pinning self-signed certificates)
   light.py, switch.py  entity platforms
-  sensor.py         only the "Last backup" diagnostic sensor
+  sensor.py         the "Last backup" and controller health diagnostic sensors
   widgets.py        classification (Touch widget id -> KNX URN -> datapoints -> title); pure, no HA imports
   services.yaml, strings.json, translations/en.json (strings.json and en.json must stay identical)
   manifest.json     version, zeroconf/dhcp matchers   | brand/ icon.svg + icon.png
@@ -51,7 +54,7 @@ Files in the repo root that must never be committed (git-ignored): `wiser_dump_*
 
 **Setup** (`__init__.py`): builds `WiserKnxClient`, coordinator, first refresh (failure → `ConfigEntryNotReady`), `WiserKnxBackupManager` (stored as `coordinator.backup_manager`), registers the controller device, registers the `wiser_for_knx.create_backup` service once, forwards platforms, removes entities of removed types, and runs the initial backup in a background task (one retry after 60 s). Options changes reload the entry.
 
-**Polling/classification**: `coordinator._async_update_data` fetches locations, functions, datapoints every `scan_interval` seconds (default 10). `classify_function` is a staticmethod delegating to `widgets.classify_function`. `light.py`/`switch.py` create one entity per function with category `light`/`switch`. Datapoint selection is by KNX datapoint type (`dpt.switch`, `dpt.scaling`, `417.70`, `418.61`, `418.63`), then title heuristics, then first writable.
+**Polling/classification**: `coordinator._async_update_data` fetches datapoints every `scan_interval` seconds (default 10) and locations/functions on the slow `STATIC_*` cadence into a cache (hourly, retried every 5 min, dropped after 3 h of failures; `async_refresh_structure` is the "Rescan devices" button). `classify_function` is a staticmethod delegating to `widgets.classify_function`. `light.py`/`switch.py` create one entity per function with category `light`/`switch`. Datapoint selection drops datapoints carrying a unit (measurements), then goes by KNX datapoint type (`dpt.switch`, `dpt.scaling`, `417.70`, `418.61`, `418.63`), then title heuristics, then first writable — in separate passes, so the controller's listing order cannot let a title beat a type.
 
 **Writes**: `PUT {api_base}/datapoints/values` with JSON:API body; HTTP 200/201/202/204 = success (the controller answers 202 Accepted).
 
@@ -59,11 +62,18 @@ Files in the repo root that must never be committed (git-ignored): `wiser_dump_*
 
 ## 4. Controller facts agents must know (details in docs/controller-api.md)
 
-- HTTPS, self-signed certificate (hence `verify_ssl` defaults to off), HTTP Basic auth, user `admin`.
+- HTTPS, usually a self-signed certificate (verification is on by default since v0.7.0-beta.1 and self-signed certificates are trusted by pinning their fingerprint during setup), HTTP Basic auth, user `admin`.
 - The 3rd-party API at `/api/w4knx/3rdparty/v1` **requires** `Accept: application/vnd.api+json, application/json`; plain `application/json` gives **HTTP 406**.
 - The management API `/api/management/v1` uses the same host, port and credentials.
-- Touch widget ids (`se-light-switch`, …) are **not** in the API; classification works from KNX function URNs (`switchingLight`, `dimming`, `switchingSocket`, `switching`, …).
+- Touch widget ids (`se-light-switch`, …) are **not** in the API; classification works from KNX function URNs (`switchingLight`, `dimming`, `switchingSocket`, `switching`, …). Vendor URNs exist (`fct.schneider.logicThermostat.type.thermostat`), so match on the whole URN — never split on `.` and take a segment.
 - Backup password rule: ≥ 8 characters with an upper-case letter, a lower-case letter and a digit.
+- `/datapoints` and `/functions` answer **500** intermittently (export being recomputed) and *permanently* while an `se-danfoss-thermostat` widget has its `object-device-status` slot populated. 5xx is retried in `api.py`; a failed poll is "no new data", never an empty installation. Never delete entities because a refresh failed.
+- Writes answer **202 before deciding**: a value that is not a member of the datapoint's `enum` verbatim is accepted and silently discarded. `coordinator._enum_member` maps to the published spelling.
+- Control and status slots collapse into **one** datapoint (value = status object, write = control object), so state is optimistic and write-then-verify must not be added.
+- Values are in engineering units: `dpt.scaling` is a percentage (raw 128 → `50`), so never rescale from 0–255. `fct.se8000` is the one function that applies an F→C conversion while still labelling the unit `C` — only relevant if climate ever returns.
+- A function is published **before** its datapoints (15 s typically, minutes during config churn), and export is also gated by the widget's `disable_export` setting. So "a function with no datapoints" and "a correctly configured widget missing from the API" are both normal controller states, not bugs.
+- One Touch widget can publish **many** functions, of different types (6 for a full 6-gang switch, 25 for a full `se-logic-thermostat`). Group by `schneider:parentFunction`; never key devices by widget id or stop at the first match.
+- Collections are not pageable: `?offset=`/`?limit=` are ignored and `meta.collection` always reports the whole set.
 
 ## 5. Working rules
 
@@ -77,11 +87,13 @@ Files in the repo root that must never be committed (git-ignored): `wiser_dump_*
 
 ## 6. Status and open items
 
-Released: v0.1.0 → v0.5.1 (see GitHub releases). Validated against real controller data: classification (unit tests use real URNs/types), management API calls (probe), backups end-to-end in HA, light/switch control (HTTP 202 handling).
+Released: v0.1.0 → v0.7.0-beta.2 (see GitHub releases; `manifest.json` is the authority). Validated against real controller data: classification (unit tests use real URNs/types), management API calls (probe), backups end-to-end in HA, light/switch control (HTTP 202 handling).
 
 Open / unverified:
 - Multi-channel Touch widgets: resolved. The controller only exposes a channel that has both a write object and a status feedback object (see docs/controller-api.md). Channels missing either are not imported; this is documented in the README.
 - A 404 was seen once on the *initial* automatic backup (HTTP 404 from a backup endpoint) while the button worked; v0.5.1 names the failing endpoint and retries once. Check the log if it recurs.
-- Socket-switch power datapoints (`dpt.power`, W) are ignored now that sensors were removed.
+- Socket-switch power datapoints (`dpt.power`, W) are ignored now that sensors were removed. They are now also excluded from control-datapoint selection, so they cannot be mistaken for a switch.
 - RGB/RGBW and DALI lights are classified as lights but only on/off and brightness are implemented (no colour control).
-- Not implemented: backup download from the HA UI, copying backups elsewhere (e.g. `/media`), diagnostic sensors from `/custom/deviceInfo` and `/flashsys/Status/SystemStatus`.
+- Not implemented: backup download from the HA UI, copying backups elsewhere (e.g. `/media`).
+- Unverified upstream: `fct.gasSensor` concentrations (`se-air-quality`'s `no2`/`ozone` published `0.0215` for a raw 21.5 — a factor of 1000, measured but unexplained). Only matters if sensors ever return.
+- The findings above come from [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset) (`skills/wiser-knx/homelynk-ha.md`). Check it for newer rounds before re-probing a controller by hand.

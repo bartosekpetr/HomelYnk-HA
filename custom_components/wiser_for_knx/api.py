@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 import aiohttp
 from aiohttp import BasicAuth
 
-from .const import MGMT_API_BASE
+from .const import COLLECTION_RETRIES, COLLECTION_RETRY_BACKOFF, MGMT_API_BASE
 from .health import parse_health
 from .tls import fingerprint_bytes
 
@@ -21,6 +22,10 @@ class WiserKnxAuthError(Exception):
 
 class WiserKnxConnectionError(Exception):
     """Raised when connection to Wiser for KNX fails."""
+
+
+class WiserKnxServerError(WiserKnxConnectionError):
+    """Raised when the controller answers 5xx, i.e. reached but unable to answer."""
 
 
 class WiserKnxCertificateError(WiserKnxConnectionError):
@@ -239,9 +244,41 @@ class WiserKnxClient:
     async def _async_get_items(self, resource: str) -> list[dict[str, Any]]:
         """GET a collection from the 3rd party API and return its `data` list.
 
-        Raises WiserKnxAuthError on 401/403 and WiserKnxConnectionError on any
-        other failure, so callers (the coordinator) can tell an outage from an
-        empty installation.
+        A 5xx is retried a few times with a growing delay: the controller answers
+        500 on `/datapoints` and `/functions` now and then, typically while it is
+        recomputing its API export after a configuration change. A persistent 5xx
+        still raises WiserKnxServerError so the caller reports "no new data"
+        rather than an empty installation.
+        """
+        delay = COLLECTION_RETRY_BACKOFF
+        for attempt in range(1, COLLECTION_RETRIES + 1):
+            try:
+                return await self._async_get_items_once(resource)
+            except WiserKnxServerError as err:
+                if attempt == COLLECTION_RETRIES:
+                    raise
+                _LOGGER.debug(
+                    "%s (attempt %d of %d); retrying in %.1f s",
+                    err,
+                    attempt,
+                    COLLECTION_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+        raise WiserKnxServerError(f"Reading {resource} failed")  # unreachable
+
+    async def _async_get_items_once(self, resource: str) -> list[dict[str, Any]]:
+        """GET a collection once.
+
+        Raises WiserKnxAuthError on 401/403, WiserKnxServerError on 5xx and
+        WiserKnxConnectionError on any other failure, so callers (the coordinator)
+        can tell an outage from an empty installation.
+
+        The collections are never paged: the response carries
+        `meta.collection: {offset, items, total}`, but this firmware ignores
+        `?offset=`/`?limit=` and always returns everything, so a pager that
+        trusts `offset` re-reads the first page forever.
         """
         session = await self._get_session()
         url = f"{self.base_url}{self.api_base}/{resource}"
@@ -254,6 +291,8 @@ class WiserKnxClient:
             ) as resp:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError(f"Unauthorized reading {resource}")
+                if resp.status >= 500:
+                    raise WiserKnxServerError(f"{url} returned HTTP {resp.status}")
                 if resp.status != 200:
                     raise WiserKnxConnectionError(f"{url} returned HTTP {resp.status}")
                 json_data = await resp.json(content_type=None)

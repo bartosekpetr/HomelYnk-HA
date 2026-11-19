@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+Brought in line with a new round of measurements on a real controller (written up in [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset); the findings that matter here are summarised in [docs/controller-api.md](docs/controller-api.md)).
+
+- A read of the controller's datapoint or function list is now retried up to three times with a growing delay when the controller answers an HTTP 5xx. The controller does this now and then while it recomputes which group objects to export, and a single unretried failure made every entity unavailable (or, at startup, looked like an empty installation). A failed poll is still never treated as "the installation is empty" and never removes entities.
+- After about 30 seconds of the controller refusing to list its datapoints, the log explains the one known permanent cause: a Wiser Touch *Danfoss thermostat* (floor heating) widget whose *device status* object is configured makes that endpoint fail for as long as the widget exists. Nothing looks wrong in Home Assistant in that case, so it was previously undiagnosable.
+- Values written to a datapoint that publishes a list of accepted values now use that list's own spelling (`on` is sent as `On` where that is what the controller published). The controller accepts any well-formed write with HTTP 202 and then silently discards a value it does not recognise, so these writes were being dropped without any error. A value that matches nothing is now logged instead of disappearing.
+- A light or switch whose function has no datapoints yet is reported as unavailable instead of reading "off" and ignoring commands. The controller publishes a function up to a few minutes before its datapoints after a configuration change, so this is a normal, temporary state that recovers on a later poll.
+- A light or switch no longer picks a measurement as its control datapoint. A socket's active power (`W`) or a dimmer's brightness (`%`) could be chosen instead of the switch, depending on the order the controller listed them, which made the entity read a wattage as its on/off state. The datapoint type now decides before the user-defined group object name in all cases.
+- The README has a troubleshooting section for missing devices, entities that all become unavailable at once, and commands that appear to do nothing.
+
 ## 0.7.0-beta.2 - 2026-11-05
 
 - Optimistic datapoint state now uses the same value format as the request sent to the controller (`on`/`off` for booleans). No current control writes a boolean, so this does not change behaviour today; it keeps the local state and the write from diverging.

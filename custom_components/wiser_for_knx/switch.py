@@ -38,17 +38,26 @@ class WiserKnxSwitch(WiserKnxBaseEntity, SwitchEntity):
     """Representation of a Wiser for KNX Switch or Socket."""
 
     def _get_switch_dp(self) -> dict[str, Any] | None:
-        """Find the on/off switch datapoint."""
+        """Find the on/off switch datapoint.
+
+        A datapoint carrying a unit is a measurement, never the control slot: a
+        socket widget publishes its active power as a read-only `dpt.power` in W
+        alongside the switch. Those are excluded first, and the datapoint type
+        then decides before the title, because titles are user-defined KNX group
+        object names and a measurement called "Power status" would otherwise win
+        on a function whose datapoints happen to be listed in that order.
+        """
         dps = self.function_data.get("datapoints", {})
-        for dp in dps.values():
-            types = dp.get("types", [])
-            title = (dp.get("title") or "").lower()
-            if any("dpt.switch" in t or "dpt.bool" in t for t in types):
+        candidates = [dp for dp in dps.values() if not dp.get("unit")]
+        for dp in candidates:
+            if any("dpt.switch" in t or "dpt.bool" in t for t in dp.get("types", [])):
                 return dp
+        for dp in candidates:
+            title = (dp.get("title") or "").lower()
             if "on/off" in title or "on off" in title or "status" in title:
                 return dp
         # Fallback to first writable
-        for dp in dps.values():
+        for dp in candidates:
             if dp.get("writable"):
                 return dp
         return None

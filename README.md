@@ -29,6 +29,8 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
   - **Switches** (`switch`): relay switches, sockets and binary actuators.
   - **Touch configuration requirement:** the controller only publishes a widget channel through its API when the channel has **both** a switch/value object **and** a status feedback object (they may use the same group address). Channels with only one of them are not imported, even if the Touch widget marks the status feedback as optional.
   - Devices are classified from the KNX function type (and Touch widget metadata when available). Sensors, covers, thermostats, alarms and scenes are intentionally not imported.
+  - One Touch widget can become **several** devices: a multi-channel widget publishes one device per fully configured channel, named `<widget name> 1`, `<widget name> 2` and so on.
+  - A switch state is read from the status object and a command is sent to the control object. Home Assistant shows the new state right away; if no actuator reports the status object back, the state will revert on the next poll.
 
 ---
 
@@ -135,6 +137,27 @@ The integration can download your controller's configuration through its managem
 
 - Keep the backup password safe. It is stored in the Home Assistant config entry and is needed to restore a backup in the Wiser for KNX web interface. This integration does not restore backups.
 - The backups contain your whole configuration. Treat the folder as sensitive and include it in your own offsite backups.
+
+---
+
+## 🩺 Troubleshooting
+
+All of the below are controller-side behaviours measured on a real unit; see
+[docs/controller-api.md](docs/controller-api.md) for the evidence.
+
+**A device or channel is missing.** Check, in this order:
+
+1. The channel needs **both** its control object and its status feedback object in the Touch widget (they may share one group address). This is the usual cause.
+2. The widget setting **Disable API Export** hides a fully configured widget from the API, and nothing else gives it away. Note that the controller only honours it when the Touch UI stores it as a true/false value.
+3. After a configuration change, the controller publishes a device **before** its channels — normally within 15 seconds, but minutes while several widgets are being edited or a backup is being restored. Devices that appear without entities are shown as unavailable and recover by themselves; wait, then press **Rescan devices** on the controller device.
+4. A brand-new device needs the integration reloaded before its entities are created (**Rescan devices** picks up new names and rooms, not new devices).
+
+**All entities became unavailable at once.** The integration keeps the last known configuration and retries; it never deletes entities because a poll failed. If it persists, check the log:
+
+- A **Danfoss thermostat (floor heating)** widget whose *device status* object is configured makes the controller's datapoint list fail for as long as that widget exists — one widget added in the Touch UI takes down everything the integration reads, with nothing wrong in Home Assistant. Removing that object (or the widget) fixes it immediately. The log says so after about 30 seconds of failures.
+- Otherwise the controller is usually busy recomputing its configuration, and it recovers on its own.
+
+**A command does nothing, or the state jumps back.** The controller accepts a write and only then decides whether it understood it, so a command can be dropped without any error. The log names the datapoint and the values it does accept. A state that reverts on the next poll usually means nothing on the KNX bus reports the status object back — the command was sent, but only the status object can confirm it.
 
 ---
 

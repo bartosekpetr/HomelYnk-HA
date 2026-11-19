@@ -17,11 +17,13 @@ from .api import (
     WiserKnxCertificateError,
     WiserKnxClient,
     WiserKnxConnectionError,
+    WiserKnxServerError,
     format_datapoint_value,
 )
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    SERVER_ERROR_HINT_AFTER,
     STATIC_MAX_AGE,
     STATIC_REFRESH_INTERVAL,
     STATIC_RETRY_INTERVAL,
@@ -75,6 +77,8 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._static_failing = False
         # Ids referenced by datapoints that the last static fetch did not know about
         self._unresolved_refs: set[str] = set()
+        # Consecutive polls the controller answered with 5xx, for the one-off log hint
+        self._server_errors = 0
         super().__init__(
             hass,
             _LOGGER,
@@ -156,6 +160,7 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # and any error propagates, so setup fails rather than starting half-blind.
                 await self._async_refresh_static()
             datapoints = await self.client.get_datapoints()
+            self._server_errors = 0
             if cold:
                 self._unresolved_refs = self._unknown_refs(datapoints)
             else:
@@ -198,13 +203,63 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed(
                 f"TLS certificate of the controller is not trusted: {err}"
             ) from err
+        except WiserKnxServerError as err:
+            # The controller is reachable but cannot answer. The retries in the client
+            # are already used up at this point, so this is a longer outage.
+            self._server_errors += 1
+            if self._server_errors == SERVER_ERROR_HINT_AFTER and "datapoints" in str(
+                err
+            ):
+                _LOGGER.warning(
+                    "The controller has refused to list its datapoints %d times in a "
+                    "row (%s), so all entities stay unavailable until it answers "
+                    "again. Usually it is recomputing which group objects to export; "
+                    "it is permanent while a Wiser Touch Danfoss thermostat (floor "
+                    "heating) widget has its device status object configured, which "
+                    "makes this endpoint fail for as long as the widget exists. See "
+                    "docs/controller-api.md",
+                    self._server_errors,
+                    err,
+                )
+            raise UpdateFailed(
+                f"Error fetching data from Wiser for KNX: {err}"
+            ) from err
         except WiserKnxConnectionError as err:
             raise UpdateFailed(
                 f"Error fetching data from Wiser for KNX: {err}"
             ) from err
 
+    def _enum_member(self, datapoint_id: str, value: Any) -> Any:
+        """Return `value` as the datapoint's own enum member, where it has an enum.
+
+        The controller answers 202 to any well-formed write and then silently
+        discards a value that is not a member of `attributes.enum` verbatim: on
+        the same writable switch datapoint `on` produces a KNX telegram while
+        `1` and `true` produce nothing at all. A value that differs from the
+        published member only in spelling is therefore replaced by that member,
+        and one that matches no member is logged, because nothing else will
+        report it.
+        """
+        datapoint = (self.data or {}).get("datapoints", {}).get(datapoint_id) or {}
+        members = [m for m in (datapoint.get("enum") or []) if isinstance(m, str)]
+        if not members:
+            return value
+        wanted = format_datapoint_value(value).casefold()
+        for member in members:
+            if member.casefold() == wanted:
+                return member
+        _LOGGER.warning(
+            "Datapoint %s accepts only %s, so the controller will accept and then "
+            "discard the value %s",
+            datapoint_id,
+            ", ".join(repr(m) for m in members),
+            repr(format_datapoint_value(value)),
+        )
+        return value
+
     async def async_write_datapoint(self, datapoint_id: str, value: Any) -> bool:
         """Write value to datapoint and optimistically update local state."""
+        value = self._enum_member(datapoint_id, value)
         success = await self.client.write_datapoint_value(datapoint_id, value)
         if success and self.data and "datapoints" in self.data:
             if datapoint_id in self.data["datapoints"]:

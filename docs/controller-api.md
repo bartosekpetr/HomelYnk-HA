@@ -44,6 +44,99 @@ A test layout was configured with some channels incomplete, then compared with t
 
 Conclusion: the controller publishes a channel through the 3rd-party API only when it has both a write object and its status feedback, even where the Touch widget documentation marks the status feedback as optional (light switch). This is a controller behaviour, not an integration filter. Each channel becomes its own function (a 3-channel light-switch widget gives 3 lights). "Device status" objects are not exposed as datapoints. The same group address may be used for the switch and its status feedback.
 
+### Findings from the 2026-11 probing rounds
+
+Measured across every control surface of one controller and written up in
+[bartosekpetr/wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset)
+(`skills/wiser-knx/homelynk-ha.md` is the Home Assistant chapter, `widget-matrix.md` the
+per-widget evidence). Only what matters for this integration is repeated here.
+
+**Reads can fail without the installation being empty.** This build intermittently answers
+**500** on `/datapoints` and `/functions`, most often while it recomputes its API export
+after a configuration change. `/datapoints` is the single request the whole entity graph is
+built from, so one unretried 500 looks like an empty installation at startup and like "every
+entity became unavailable" at runtime. The client retries 5xx (`COLLECTION_RETRIES`, growing
+backoff) and the coordinator reports a failed poll as *no new information*: entities go
+unavailable, nothing is removed.
+
+One widget configuration wedges it **permanently**: an `se-danfoss-thermostat` (floor
+heating) with its `object-device-status` slot populated makes `GET /datapoints` return 500
+for as long as the widget exists; deleting the widget restores it immediately. It was
+bisected one slot at a time, and the 37 other widget types that declare the same slot are
+all harmless — it is the combination. After `SERVER_ERROR_HINT_AFTER` consecutive refusals
+the integration logs this as the likely cause, because nothing in Home Assistant looks wrong.
+
+**Collections are never paged.** Responses carry `meta.collection: {offset, items, total}`,
+but this firmware ignores `?offset=` and `?limit=` and always returns everything with
+`items == total`. A pager that trusts `offset` re-reads the first page forever.
+
+**A write is accepted, not applied.** `PUT /datapoints/values` answers 202 for any
+well-formed body and then silently discards a value that is not a member of the datapoint's
+`enum` *verbatim*: on the same writable switch datapoint `on` produced a KNX telegram while
+`1` and `true` produced nothing. The HTTP status cannot tell the two apart, so the
+coordinator matches the value against the datapoint's own `enum` and logs a value that
+matches no member.
+
+**Control and status collapse into one datapoint.** The datapoint's value is the status
+object; a write to it drives the control object. So optimistic *and* pessimistic state are
+both wrong in general: where an actuator bridges control → status the value follows shortly,
+and where nothing does (a lone KNX output) it never follows. The integration therefore
+updates its local state optimistically and never does write-then-verify-else-error.
+
+**Values are in engineering units.** A datapoint's `value` is converted from the raw group
+object value per type and must be passed through unchanged: a `dpt.scaling` raw 128 is
+published as `50` with `unit: "%"`, so re-deriving a percentage from 0–255 is wrong by a
+factor of 2.55. One exception matters if climate ever returns: `fct.se8000` publishes every
+`dpt.valueTemp` as `(raw − 32) × 5/9` while still labelling it `unit: "C"`, verified against
+an `se-thermostat` on the same group address. There is no flag to detect it from; it has to
+be special-cased on the function type. (`se-air-quality`'s `no2`/`ozone` published `0.0215`
+for a raw 21.5 — a factor of 1000, measured but unexplained; treat `fct.gasSensor`
+concentrations as unverified.)
+
+**Export has a second, invisible gate.** Besides the write-object-plus-status rule above,
+the widget setting "Disable API Export" (`disable_export`) suppresses export — but only when
+stored as a real JSON boolean. Written as the integer `1` it is stored and ignored, so it
+looks set in the Touch config while having no effect. A fully configured widget can therefore
+be absent from the API for a reason invisible in the function/datapoint graph. There is no
+room-level equivalent (`a=save_room_settings` answers 404 on this firmware). The firmware's
+own `requiredForApp` tag is **not** the gate and has been measured wrong in both directions.
+
+**A function is published before its datapoints.** Measured on `se-alarm-water`,
+`se-light-dimmer-rotary` and `se-thermostat-vdc`: the function existed with zero datapoints
+and they attached **15 s** later. The wait grows with configuration churn — the same types
+publish in 1–6 s on a quiet controller but showed nothing after 240 s during a 47-widget
+sweep. So a bulk import or a restore is exactly when "this function publishes nothing" must
+not be concluded. Entities for a function with no datapoints yet report *unavailable* and
+recover on a later poll. (`fct.content`, from the Content widget, legitimately has none.)
+
+**One widget can become many devices**, in two ways, and the function type and count follow
+the *slot combination*, not the widget type, so neither can be looked up from a static table:
+
+| | measured |
+|---|---|
+| channel fan-out | a 6-gang `se-light-switch` with all 18 slots filled publishes **6** `fct.switchingLight` functions, titled `<widget> 1` … `<widget> 6`, one `dpt.switch` each, all sharing one `schneider:widgetId`; the same widget with only the mandatory pair publishes 1 |
+| mixed export | `se-weather-station` with a wind threshold publishes `fct.weather` *and* `fct.alarmWind`; `se-thermostat` changes type with its slot set (`fct.temperatureAirFan` vs `fct.iTRV`) |
+| largest fan-out | `se-logic-thermostat` at full slots: **25 functions, 48 datapoints** from one widget |
+
+Entities are therefore grouped by `schneider:parentFunction`, never by widget id, and every
+function matching a widget id is enumerated — stopping at the first match yields a
+plausible-looking single entity while five channels silently go missing.
+
+**Vendor function types exist.** `se-logic-thermostat` publishes
+`urn:knx:fct.schneider.logicThermostat.type.thermostat` next to the standard `fct.iTRV` and
+`fct.genericThermostat`. Matching must use the whole URN with a fallback for unknown types:
+splitting on `.` and taking the last segment reads that one as `thermostat`, and taking the
+segment after `fct.` reads it as `schneider`. `widgets.py` matches on substrings of the full
+URN for this reason.
+
+**Ids are stable, names are not ours to write.** `datapoint.id` and the function id survive
+widget edits, group-address changes and renames byte-identically (the API `title` follows the
+new name), which is what makes them usable as `unique_id`s. `PUT /functions|locations/attributes`
+answers **405**, so the API `title` is an initial value only and renaming happens in Home
+Assistant. `/locations` is a flat list — site, floors and rooms in one array, every `type`
+`null` — and the floor → room hierarchy exists only in the Touch config, so the room name
+from `schneider:parentLocationName` is used directly as the suggested area.
+
 ## 2. Management API – `/api/management/v1`
 
 Spec is the vendor file `device-api.yaml` (kept outside the repo). Used by the integration:

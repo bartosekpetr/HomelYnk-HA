@@ -32,6 +32,15 @@ STATIC_RETRY_INTERVAL = 300  # seconds
 STATIC_MAX_AGE = 3 * STATIC_REFRESH_INTERVAL  # seconds
 DEFAULT_USERNAME = "admin"
 DEFAULT_API_BASE = "/api/w4knx/3rdparty/v1"
+# This controller build answers HTTP 500 on /datapoints and /functions now and then,
+# most often while it recomputes which group objects to export after a config change.
+# /datapoints is the one request the whole entity graph is built from, so a single
+# unretried 500 makes every entity unavailable; retry briefly before giving up.
+COLLECTION_RETRIES = 3
+COLLECTION_RETRY_BACKOFF = 0.5  # seconds before the second attempt, doubled after that
+# Consecutive failed datapoint polls before the log explains the known controller-side
+# cause (see docs/controller-api.md). At the default scan interval this is about 30 s.
+SERVER_ERROR_HINT_AFTER = 3
 
 ISSUE_INSECURE_TLS = "insecure_tls_{entry_id}"
 ISSUE_INSECURE_HTTP = "insecure_http_{entry_id}"

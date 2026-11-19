@@ -67,7 +67,8 @@ def test_client_error_raises_connection_error(getter):
 
 @pytest.mark.parametrize("getter", ["get_locations", "get_functions", "get_datapoints"])
 @pytest.mark.parametrize("status", [500, 502, 404])
-def test_non_200_raises_connection_error(getter, status):
+def test_non_200_raises_connection_error(getter, status, retry_sleeps):
+    # A 5xx is retried first (see test_collection_retry.py); retry_sleeps keeps it instant.
     with pytest.raises(WiserKnxConnectionError):
         asyncio.run(getattr(_client(lambda *a, **k: _FakeResponse(status)), getter)())
 
@@ -108,8 +109,8 @@ def test_coordinator_timeout_during_refresh_is_update_failed():
         asyncio.run(_coordinator(client)._async_update_data())
 
 
-def test_coordinator_non_200_during_refresh_is_update_failed():
-    """End to end: HTTP 500 from the controller fails the refresh."""
+def test_coordinator_non_200_during_refresh_is_update_failed(retry_sleeps):
+    """End to end: a persistent HTTP 500 from the controller fails the refresh."""
     coordinator = _coordinator(_client(lambda *a, **k: _FakeResponse(500)))
     with pytest.raises(UpdateFailed):
         asyncio.run(coordinator._async_update_data())

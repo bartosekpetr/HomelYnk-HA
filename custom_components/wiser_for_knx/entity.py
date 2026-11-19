@@ -55,11 +55,20 @@ class WiserKnxBaseEntity(CoordinatorEntity[WiserKnxDataUpdateCoordinator]):
 
     @property
     def available(self) -> bool:
-        """Return True if entity is available."""
+        """Return True if entity is available.
+
+        A function without datapoints has nothing to read and no slot to write
+        to. The controller publishes a function up to a few minutes before its
+        datapoints after a configuration change (longer while several widgets are
+        being edited), so this state is normal and resolves itself on a later
+        poll; reporting it as unavailable is more honest than an entity that
+        reads "off" and ignores every command.
+        """
         return (
             super().available
             and self.coordinator.data is not None
             and self.function_id in self.coordinator.data.get("functions", {})
+            and bool(self.function_data.get("datapoints"))
         )
 
     @property

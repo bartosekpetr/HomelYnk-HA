@@ -1,8 +1,32 @@
 """Pytest fixtures and lightweight homeassistant mocks for local testing without HA installed."""
 
+import asyncio
 import importlib.util
 import sys
 from unittest.mock import MagicMock
+
+import pytest
+
+
+@pytest.fixture
+def retry_sleeps(monkeypatch):
+    """Make the client's retry backoff instant and record what it waited for.
+
+    The API client sleeps between its retries of a 5xx. The returned list holds
+    the delays it asked for, which is what assertions on the backoff use.
+
+    Requested explicitly, never autouse: this replaces `asyncio.sleep` process
+    wide, and the tests that run against a real Home Assistant drive an event
+    loop that is entitled to sleep for its own reasons.
+    """
+    waited: list[float] = []
+
+    async def _sleep(delay):
+        waited.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", _sleep)
+    return waited
+
 
 # If aiohttp is not installed locally, provide mock
 if importlib.util.find_spec("aiohttp") is None:
@@ -75,3 +99,28 @@ if importlib.util.find_spec("homeassistant") is None:
     sys.modules["homeassistant.components.sensor"] = MagicMock()
     sys.modules["homeassistant.components.cover"] = MagicMock()
     sys.modules["homeassistant.components.climate"] = MagicMock()
+
+    class _MockCoordinatorEntity:
+        """Stand-in for CoordinatorEntity: a real class, so platforms can subclass it.
+
+        A MagicMock attribute cannot be used as a base class (metaclass conflict),
+        which is why the light and switch entities need this. `available` mirrors
+        the real implementation so entity tests exercise their own logic.
+        """
+
+        _attr_has_entity_name = False
+
+        def __init__(self, coordinator, *args, **kwargs):
+            self.coordinator = coordinator
+
+        def __class_getitem__(cls, item):
+            return cls
+
+        @property
+        def available(self):
+            return bool(self.coordinator.last_update_success)
+
+    update_coord_mock.CoordinatorEntity = _MockCoordinatorEntity
+    sys.modules["homeassistant.components.light"].LightEntity = _MockCoordinatorEntity
+    sys.modules["homeassistant.components.light"].ATTR_BRIGHTNESS = "brightness"
+    sys.modules["homeassistant.components.switch"].SwitchEntity = _MockCoordinatorEntity
