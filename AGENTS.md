@@ -14,7 +14,7 @@ The project is **backup-focused**:
 1. **Controller backups** (main feature): download the password-protected *system* and *project* ZIP backups from the controller's management API, store them in `<HA config>/wiser_backups/`, schedule them, prune old ones, and take a fresh one before every Home Assistant backup.
 2. **Light and switch import**: only `light` and `switch` entities are created from the controller's functions.
 
-Deliberately **removed in v0.5.0** (do not re-add without being asked): sensor, binary_sensor, cover and climate platforms. The only sensor left is the diagnostic **Last backup** sensor. `widgets.py` still *classifies* covers/climate/sensors so they can be skipped correctly, and `__init__.py` deletes leftover registry entities of the removed types.
+Deliberately **removed in v0.5.0** (do not re-add without being asked): binary_sensor, cover and climate platforms, and the sensors that were created from controller functions. The `sensor` platform itself **stays**: `sensor.py` ships the diagnostic **Last backup** sensor plus five controller-health sensors (firmware, uptime, CPU load, memory used, storage used; added in v0.7.0-beta.1, fed by `WiserKnxHealthCoordinator`/`health.py`). `__init__.py` keeps their unique-id suffixes in `_SENSOR_SUFFIXES` on purpose; any other `sensor` registry entity is deleted as a leftover, so a new sensor needs its suffix added there. `widgets.py` still *classifies* covers/climate/sensors so they can be skipped correctly, and `__init__.py` deletes leftover registry entities of the removed types.
 
 Deliberately **not exposed**: restore, admin password change, hostname change, KNX/BACnet patches, log clearing. The BACnet settings contain a `Password` field; redact it if diagnostics are ever added.
 
