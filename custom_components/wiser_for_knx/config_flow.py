@@ -272,7 +272,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Optional(CONF_PLAIN_HTTP, default=False): bool,
                 vol.Optional(CONF_SKIP_VERIFY, default=not DEFAULT_VERIFY_SSL): bool,
                 vol.Optional(CONF_USERNAME, default=DEFAULT_USERNAME): str,
-                vol.Optional(CONF_PASSWORD, default=""): str,
+                vol.Optional(CONF_PASSWORD, default=""): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
             }
         )
 
@@ -501,7 +503,9 @@ class WiserKnxConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_USERNAME,
                     default=entry.data.get(CONF_USERNAME) or DEFAULT_USERNAME,
                 ): str,
-                vol.Optional(CONF_PASSWORD, default=""): str,
+                vol.Optional(CONF_PASSWORD, default=""): TextSelector(
+                    TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                ),
             }
         )
         return self.async_show_form(
