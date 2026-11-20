@@ -114,8 +114,8 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |  Management API  /api/management/v1                                                 |
  |    GET  /custom/deviceInfo                  (45)  firmware, hardware, MAC/serial    |
  |    GET  /flashsys/Status/SystemStatus       (46)  uptime, load, memory, partitions  |
- |    POST /flashsys/system/backupConfiguration(47)  system ZIP, ~5 KB                 |
- |    POST /scada-main/general/backup          (48)  project ZIP, ~1.8 MB              |
+ |    POST /flashsys/system/backupConfiguration(47)  system ZIP; body IS the ZIP       |
+ |    POST /scada-main/general/backup          (48)  project ZIP; size drifts          |
  |    NOT USED on purpose: restore, admin password, hostname, KNX/BACnet patches, logs |
  |                                                                                     |
  |                         ^                                ^                          |
@@ -597,6 +597,7 @@ controller.
 | Brightness comes back one or two steps off what was set | the integration's percent↔255 truncation | HA 128 → 50 % → 127. HA 1–2 → 0 % → off |
 | Device names or rooms are wrong / stale | the Touch config, then the 1 h cache | `PUT /functions\|locations/attributes` answers 405, so the API `title` is an initial value only; rename in HA. `/locations` is flat with every `type: null`, so the room name is used directly as the suggested area and no floor hierarchy exists |
 | A device moves to a different area after a restart | the flat `/locations` list | `suggested_area` is re-derived from `schneider:parentLocationName` each time the device is created |
+| A backup fails with `Controller returned an invalid … backup` | the controller's answer, not the filesystem | HTTP 200 with a body that is not a readable ZIP (a JSON error, a login page). The response body *is* the archive, so it is parsed before it is stored; nothing is written and the previous backups are kept. Never diagnose a stored archive by its size — the project archive grows with the trend data inside it, the entry count is the invariant |
 | Entities vanished after an upgrade | `_remove_unsupported_entities` | intentional for `binary_sensor`/`cover`/`climate` and function-derived sensors (removed in v0.5.0). Unintentional if a *new* sensor's suffix was not added to `_SENSOR_SUFFIXES` |
 | No backup files appear, no error anywhere | no valid backup password | an empty or rule-violating password makes `configured` False and backups are skipped silently by design. Set it in **Configure** |
 | Backup fails with HTTP 400 | the password rule | ≥ 8 chars with an upper-case letter, a lower-case letter and a digit, enforced by the controller |

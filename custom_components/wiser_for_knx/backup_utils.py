@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import re
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +23,30 @@ def is_valid_backup_password(password: str | None) -> bool:
         and re.search(r"[a-z]", password) is not None
         and re.search(r"\d", password) is not None
     )
+
+
+def zip_entry_count(data: bytes) -> int:
+    """Return the number of entries in a backup archive.
+
+    The controller answers a backup request with the ZIP itself: no JSON, no
+    `success` key, so the status code is not evidence that the body is an
+    archive. Validate by parsing it. The entry count is the invariant worth
+    reporting; the byte size drifts upwards as the trend data inside the
+    archive grows, so it must never be used as a checksum.
+
+    Raises ValueError if the blob is not a readable ZIP. Entries of a
+    password-protected archive are listed without the password (only their
+    contents are encrypted), so this never needs the backup password.
+    """
+    if not data:
+        raise ValueError("the archive is empty")
+    if not data.startswith(b"PK"):
+        raise ValueError("the body does not start with the ZIP magic bytes")
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            return len(archive.infolist())
+    except zipfile.BadZipFile as err:
+        raise ValueError(f"the body is not a readable ZIP: {err}") from err
 
 
 def safe_host(host: str) -> str:

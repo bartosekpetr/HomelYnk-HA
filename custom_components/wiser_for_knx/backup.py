@@ -19,6 +19,7 @@ from .backup_utils import (
     is_valid_backup_password,
     list_backups,
     prune_backups,
+    zip_entry_count,
 )
 from .const import BACKUP_DIR, BACKUP_KINDS, DOMAIN
 
@@ -149,12 +150,30 @@ class WiserKnxBackupManager:
         now = datetime.now()
         written: list[Path] = []
         for kind, data in payloads.items():
-            if not data:
-                raise HomeAssistantError(f"Controller returned an empty {kind} backup")
+            # The controller answers with the archive itself, so HTTP 200 is not
+            # evidence that the body is one: parse it before storing it. The
+            # entry count is logged because it is the stable property - the byte
+            # size grows with the trend data inside the archive.
+            try:
+                entries = zip_entry_count(data)
+            except ValueError as err:
+                raise HomeAssistantError(
+                    f"Controller returned an invalid {kind} backup: {err}"
+                ) from err
             target = directory / backup_filename(self.client.host, kind, now)
             temp = target.with_suffix(".tmp")
             temp.write_bytes(data)
+            # A project backup holds the whole installation, so keep it readable
+            # by Home Assistant only instead of at the process umask.
+            temp.chmod(0o600)
             temp.replace(target)
             written.append(target)
+            _LOGGER.debug(
+                "Stored %s backup %s: %d entries, %d bytes",
+                kind,
+                target.name,
+                entries,
+                len(data),
+            )
         prune_backups(directory, self.client.host, list(BACKUP_KINDS), self.keep)
         return written

@@ -143,14 +143,21 @@ Spec is the vendor file `device-api.yaml` (kept outside the repo). Used by the i
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/flashsys/system/backupConfiguration` | system configuration backup (~5 KB ZIP) |
-| POST | `/scada-main/general/backup` | project/SCADA backup (~1.8 MB ZIP) |
+| POST | `/flashsys/system/backupConfiguration` | system configuration backup (a few KB, ZIP) |
+| POST | `/scada-main/general/backup` | project/SCADA backup (hundreds of KB to a few MB, ZIP) |
 | GET | `/custom/deviceInfo` | firmware, hardware, architecture (used by the health sensors) |
 | GET | `/flashsys/Status/SystemStatus` | uptime, load, memory, partitions (used by the health sensors) |
 
 Backup request: headers `Accept: application/json, application/octet-stream, */*`, `Content-Type: application/json`, body `{"data":{"password":"<backup password>"}}`. The response is a ZIP with encrypted entries (`application/x-gzip` or `application/octet-stream` content type, but the magic bytes are `PK`). Status 400 = password rule violated; 401/403 = auth. Allow a long timeout (the client uses 180 s).
 
 **Password rule (enforced by the controller):** at least 8 characters, one upper-case letter, one lower-case letter, one digit. Implemented in `backup_utils.is_valid_backup_password`.
+
+**Validate the body, not the status code** (skillset round of 2026-11-20). There is no `success` key and no JSON envelope: the body *is* the archive, so HTTP 200 alone is no evidence that what arrived is a backup. `backup_utils.zip_entry_count` parses it before it is stored and the manager refuses to write anything that is not a readable ZIP. The entry count is the invariant to report: on the reference controller the project archive held the same number of entries at every measurement while its **size drifted upwards** (423–431 KB earlier, 452133 B on 2026-11-20) because the trend data inside it keeps growing. **Never check a backup against a size band** — doing so rejects a good archive exactly when a restore matters. Entries of a password-protected archive are listed without the password; only their contents are encrypted.
+
+Two related hardening findings from the same round, and where this integration stands on them:
+
+- *A `Content-Disposition` filename joined onto a local directory is a path-traversal sink.* Not applicable here by construction: file names are generated from host, kind and timestamp (`backup_utils.backup_filename`) and the host is passed through `safe_host`, so the controller's response headers never choose a path.
+- *A project backup is a copy of the whole installation and should not be created at the process umask.* Stored files are `chmod 0600` in `backup.py` before the atomic rename.
 
 Not used on purpose: restore endpoints, admin password change, hostname/network changes, KNX/BACnet patches, log clearing. The BACnet settings include a `Password` field.
 

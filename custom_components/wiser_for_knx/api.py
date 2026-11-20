@@ -468,6 +468,10 @@ class WiserKnxClient:
                         f"Backup request to {kind_path} returned HTTP {resp.status}"
                     )
                 return await resp.read()
+        except TimeoutError as err:
+            raise WiserKnxConnectionError(
+                f"Backup request to {kind_path} timed out"
+            ) from err
         except aiohttp.ClientError as err:
             raise _connection_error(f"Backup request failed: {err}", err) from err
 

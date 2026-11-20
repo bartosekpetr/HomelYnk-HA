@@ -53,7 +53,12 @@ if importlib.util.find_spec("homeassistant") is None:
     class _ConfigEntryAuthFailed(Exception):
         pass
 
+    class _HomeAssistantError(Exception):
+        pass
+
     exceptions_mock.ConfigEntryAuthFailed = _ConfigEntryAuthFailed
+    # Real class, not a MagicMock: backup.py raises it and tests assert on it.
+    exceptions_mock.HomeAssistantError = _HomeAssistantError
     sys.modules["homeassistant.exceptions"] = exceptions_mock
     sys.modules["homeassistant.helpers"] = MagicMock()
     sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()

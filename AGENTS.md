@@ -59,7 +59,7 @@ Files in the repo root that must never be committed (git-ignored): `wiser_dump_*
 
 **Writes**: `PUT {api_base}/datapoints/values` with JSON:API body; HTTP 200/201/202/204 = success (the controller answers 202 Accepted).
 
-**Backups**: `POST /api/management/v1/flashsys/system/backupConfiguration` and `/scada-main/general/backup` with JSON `{"data":{"password": "..."}}`. Returns a password-protected ZIP. Files are written to a temp name and renamed; pruning is per kind and per host. Errors raise `HomeAssistantError` and are stored in `last_error`. HA hooks `async_pre_backup`/`async_post_backup` in `backup.py` refresh the backups before each HA backup and never block it.
+**Backups**: `POST /api/management/v1/flashsys/system/backupConfiguration` and `/scada-main/general/backup` with JSON `{"data":{"password": "..."}}`. Returns a password-protected ZIP. Each payload is parsed as a ZIP before anything is written; files are written to a temp name, `chmod 0600`, and renamed; pruning is per kind and per host. Errors raise `HomeAssistantError` and are stored in `last_error`. HA hooks `async_pre_backup`/`async_post_backup` in `backup.py` refresh the backups before each HA backup and never block it.
 
 ## 4. Controller facts agents must know (details in docs/controller-api.md)
 
@@ -68,6 +68,7 @@ Files in the repo root that must never be committed (git-ignored): `wiser_dump_*
 - The management API `/api/management/v1` uses the same host, port and credentials.
 - Touch widget ids (`se-light-switch`, …) are **not** in the API; classification works from KNX function URNs (`switchingLight`, `dimming`, `switchingSocket`, `switching`, …). Vendor URNs exist (`fct.schneider.logicThermostat.type.thermostat`), so match on the whole URN — never split on `.` and take a segment.
 - Backup password rule: ≥ 8 characters with an upper-case letter, a lower-case letter and a digit.
+- A backup response has **no JSON envelope and no `success` key — the body is the ZIP**, so HTTP 200 proves nothing. `backup_utils.zip_entry_count` parses it before `backup.py` stores it. Validate by parsing and counting entries, **never by byte size**: the project archive's size drifts upwards with the trend data inside it (452133 B measured on 2026-11-20 against the 423–431 KB recorded earlier) while the entry count stayed put. Stored files are `chmod 0600`.
 - `/datapoints` and `/functions` answer **500** intermittently (export being recomputed) and *permanently* while an `se-danfoss-thermostat` widget has its `object-device-status` slot populated. 5xx is retried in `api.py`; a failed poll is "no new data", never an empty installation. Never delete entities because a refresh failed.
 - Writes answer **202 before deciding**: a value that is not a member of the datapoint's `enum` verbatim is accepted and silently discarded. `coordinator._enum_member` maps to the published spelling.
 - Control and status slots collapse into **one** datapoint (value = status object, write = control object), so state is optimistic and write-then-verify must not be added.
@@ -98,3 +99,4 @@ Open / unverified:
 - Not implemented: backup download from the HA UI, copying backups elsewhere (e.g. `/media`).
 - Unverified upstream: `fct.gasSensor` concentrations (`se-air-quality`'s `no2`/`ozone` published `0.0215` for a raw 21.5 — a factor of 1000, measured but unexplained). Only matters if sensors ever return.
 - The findings above come from [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset) (`skills/wiser-knx/homelynk-ha.md`). Check it for newer rounds before re-probing a controller by hand.
+- Skillset reviewed up to `27222a3` (branch `wiser-mcp-phase2`, 2026-11-20). Of that round, only the backup findings reach this integration (ZIP validation, size drift, `0600`, the `Content-Disposition` traversal sink — the last one is not applicable here because file names are generated locally). The rest of the round is about *building apps on the controller* (`.ipk` packaging, `opkg remove` leaving directories, the controller's root `umask 0000`, nginx `Origin` requirements, `require('apps')` in an nginx worker) and has no bearing on an HA integration that only talks to the two HTTP APIs. `homelynk-ha.md` itself is unchanged since `f6b39ac`.

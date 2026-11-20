@@ -129,7 +129,8 @@ The integration can download your controller's configuration through its managem
 - Press the **Create backup** button on the controller device, or call the `wiser_for_knx.create_backup` service (for example from an automation).
 - **Controller health** diagnostic sensors (refreshed every 5 minutes): firmware version, uptime, CPU load (1 min), memory used %, storage used %. The firmware and hardware version are also shown on the controller device. If the management API is unreachable these sensors just become unavailable.
 - The **Last backup** diagnostic sensor shows when the last backup succeeded, and the last error if one failed.
-- Files are written to `wiser_backups/` inside your Home Assistant configuration folder, named `wiser_<host>_<system|project>_<timestamp>.zip`.
+- Files are written to `wiser_backups/` inside your Home Assistant configuration folder, named `wiser_<host>_<system|project>_<timestamp>.zip`, readable by Home Assistant only (file mode `0600`).
+- Every download is checked to be a readable ZIP archive before it is stored. If the controller answers with something else, the backup is reported as failed on the **Last backup** sensor and the previous files are kept untouched — you never end up with a `.zip` that cannot be opened. Do not judge a stored backup by its size: the project backup grows over time because the controller's trend data is inside it.
 
 **Included in Home Assistant backups:** the `wiser_backups/` folder is inside `/config`, so every Home Assistant backup contains your controller backups. Just before each Home Assistant backup starts, the integration also takes a fresh controller backup (if a backup password is set), so the copy in the HA backup is current. If the controller is unreachable, the HA backup still proceeds and a warning is logged.
 

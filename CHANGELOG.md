@@ -12,6 +12,9 @@ Brought in line with a new round of measurements on a real controller (written u
 - A light or switch whose function has no datapoints yet is reported as unavailable instead of reading "off" and ignoring commands. The controller publishes a function up to a few minutes before its datapoints after a configuration change, so this is a normal, temporary state that recovers on a later poll.
 - A light or switch no longer picks a measurement as its control datapoint. A socket's active power (`W`) or a dimmer's brightness (`%`) could be chosen instead of the switch, depending on the order the controller listed them, which made the entity read a wattage as its on/off state. The datapoint type now decides before the user-defined group object name in all cases.
 - The README has a troubleshooting section for missing devices, entities that all become unavailable at once, and commands that appear to do nothing.
+- A downloaded backup is now parsed as a ZIP archive before it is stored. The controller answers a backup request with the archive itself — no JSON, no status field — so an error page or an error document returned with HTTP 200 used to be saved as a `.zip` that could not be opened, and it counted as a successful backup. Such a response is now reported as a failure on the *Last backup* sensor and the previously stored backups are left untouched. The number of entries in the archive is written to the debug log; the file size is deliberately not checked, because the project backup keeps growing as the controller's trend data grows.
+- Stored backup files are created with file mode `0600` (readable by Home Assistant only) instead of at the system default. They contain the whole controller configuration.
+- A backup download that times out is now reported as a connection failure instead of raising an unhandled timeout.
 
 ## 0.7.0-beta.2 - 2026-11-05
 
