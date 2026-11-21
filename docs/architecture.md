@@ -1,10 +1,11 @@
 # Architecture
 
-Diagram current as of 5f3068e1a6dd320fc948c186f9ac669d024fa002 — 2026-11-21
+Diagram current as of 353b3617b53958b63c48a94f9169a80bb7efe83b — 2026-11-21
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
-a Wiser for KNX controller — config flow and options, the coordinators, the API client, every
-entity platform, the backup manager, and the KNX IoT 3rd Party API contract
+a Wiser for KNX controller — config flow and options, the coordinators, the API client, the
+role map and the entity plan, all ten entity platforms, the backup manager, and the KNX IoT
+3rd Party API contract
 (`schneider_knx_iot_3rdparty_v1_openapi.json`, [docs/controller-api.md](controller-api.md)).
 
 Everything here is derived from the code, `manifest.json`, `hacs.json`, the CI workflow and the
@@ -64,22 +65,33 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |              |       |   give up at 3 h      |  | effort  |  | prune     |         |
  |              |       | enum-verbatim writes  |  +----+----+  +--+-----+--+         |
  |              |       | optimistic local state|  (28)|        (37)|  (17)|          |
- |              |       +--+-----------------+--+       v            |      v          |
- |              |     (27)|                 |     +----------+       |  <config>/      |
- |              |          v                |     | health.py|       |  wiser_backups  |
- |              |     +-----------+          |     | parse    |       |  /*.zip        |
- |              |     | widgets.py|          |     +----------+       |  (18 executor) |
- |              |     | classify  |          |                        |                |
- |              |     +-----------+          |(32,33,34,35,36)        |                |
- |              |                   +--------+----+--------+------+   |                |
- |              |                   v             v        v      v   |                |
- |              |              light.py     switch.py  sensor.py  button.py            |
+ |              |       | entity_plan per poll  |       v            |      v          |
+ |              |       +--+-----------------+--+     +----------+   |  <config>/      |
+ |              |     (27)|                 |         | health.py|   |  wiser_backups  |
+ |              |          v                |         | parse    |   |  /*.zip        |
+ |              |     +-----------+          |        +----------+   |  (18 executor) |
+ |              |     |  plan.py  |          |                        |                |
+ |              |     | composite |          |                        |                |
+ |              |     | + datapnt |          |                        |                |
+ |              |     | entity    |          |                        |                |
+ |              |     | specs     |          |                        |                |
+ |              |     +--+-----+--+          |                        |                |
+ |              |        |     |             |                        |                |
+ |              |        v     v             |(32,33,34,35,36)        |                |
+ |              | widgets.py  datapoints.py  |                        |                |
+ |              | classify    dpa -> role     |                        |                |
+ |              |   (fct URN)   (slot role)  |                        |                |
+ |              |                   +--------+--+--------+------+     |                |
+ |              |                   v           v        v      v     |                |
+ |              |        light switch cover climate lock  sensor binary_sensor         |
+ |              |        select number button (scenes + controller actions)            |
  |              |                   \            |        |        /   |               |
  |              |                    +-----------+--------+-------+    |               |
  |              |                                |                     |               |
- |              |                     entity.py base entity (36)       |               |
+ |              |                entity.py base + datapoint entity (36)|               |
+ |              |                async_setup_plan_entities: adds what   |               |
+ |              |                the plan grew, never removes          |               |
  |              |                     -> entity + device registries    |               |
- |              |                                                      |               |
  |              +-------------------------+----------------------------+               |
  |                                        v                                            |
  |                          +----------------------------+     +------------------+    |
@@ -105,7 +117,8 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |  3rd Party API  /api/w4knx/3rdparty/v1                                              |
  |    GET /locations            (41)  also the authentication probe                    |
  |    GET /functions            (42)  meta["@type"] = fct.* URNs -> platform           |
- |    GET /datapoints           (43)  THE WHOLE ENTITY GRAPH, one request              |
+ |    GET /datapoints           (43)  THE WHOLE ENTITY GRAPH, one request;             |
+ |                                    meta["@type"] also = dic:dpa.* -> widget slot    |
  |    PUT /datapoints/values    (44)  answers 202 Accepted before deciding             |
  |    NOT USED (53): POST /subscribe, GET /messaging/ws, /subscriptions/*,             |
  |                   /sites, /node, /devices, /installations, bulk + project writes,   |
@@ -150,7 +163,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 9 | `ConfigEntryAuthFailed` | HA reauth → `config_flow.async_step_reauth` | one-way signal out of the coordinator |
 | 10 | `__init__` | device registry | write; the controller device |
 | 11 | entity platforms | entity + device registries | write; one device per function |
-| 12 | `__init__._remove_unsupported_entities` | entity registry | **delete**, every setup |
+| 12 | entity platforms | entity registry | **add only**, at setup and on every later poll; v0.8.0 removed the setup-time delete sweep |
 | 13 | `__init__._sync_transport_issues` / `async_remove_entry` | issue registry | create/delete repair issues |
 | 14 | `__init__` | service registry | register/remove `wiser_for_knx.create_backup` |
 | 15 | service call | **every** loaded entry's backup manager | fan-out, no target selector |
@@ -229,14 +242,21 @@ flowchart TB
       APIC["api.py WiserKnxClient<br/>the only aiohttp caller<br/>5xx retried 3x<br/>api_base regex-guarded"]
       TLSM["tls.py<br/>fingerprint pin, fetch, format"]
       IDM["identity.py<br/>MAC / serial, v1 id migration"]
-      WID["widgets.py<br/>URN and datapoint classification"]
+      WID["widgets.py<br/>function URN to category"]
+      DPM["datapoints.py<br/>dic:dpa archetype to widget-slot role<br/>plus the fct.se8000 F to C fix"]
+      PLAN["plan.py<br/>composite viability plus<br/>the platform of every leftover datapoint"]
       HLT["health.py<br/>deviceInfo plus SystemStatus parsing"]
       BU["backup_utils.py<br/>password rule, filenames, prune,<br/>ZIP parse and entry count"]
-      ENT["entity.py<br/>base entity, controller device info"]
-      LI["light.py"]
-      SW["switch.py"]
-      SE["sensor.py<br/>last backup plus 5 health"]
-      BT["button.py<br/>Create backup, Rescan devices"]
+      ENT["entity.py<br/>base and datapoint entity,<br/>controller device info,<br/>async_setup_plan_entities"]
+      LI["light.py<br/>on/off, brightness, RGB, RGBW"]
+      SW["switch.py<br/>function and datapoint switches"]
+      CV["cover.py<br/>position inverted, tilt, up/down"]
+      CL["climate.py<br/>setpoint, HVAC mode, preset, fan"]
+      LK["lock.py"]
+      BS["binary_sensor.py<br/>role to device class"]
+      SEL["select.py / number.py<br/>writable enums and numbers"]
+      SE["sensor.py<br/>datapoint readings, 7 health,<br/>last backup, export counts"]
+      BT["button.py<br/>Create backup, Rescan devices,<br/>one per KNX scene"]
       CONST["const.py<br/>constants only"]
     end
   end
@@ -281,6 +301,7 @@ flowchart TB
   HCOORD -->|"device_id, firmware, hardware"| INIT
 
   COORD --> WID
+  COORD --> DPM
   COORD --> APIC
   HCOORD --> APIC
   HCOORD --> HLT
@@ -294,20 +315,41 @@ flowchart TB
   TLSM -->|"fingerprint bytes"| APIC
   CONST -.-> INT
 
+  COORD -->|"entity_plan, once per poll"| PLAN
+  WID --> PLAN
+  DPM --> PLAN
+  PLAN --> ENT
+  ENT --> LI
+  ENT --> SW
+  ENT --> CV
+  ENT --> CL
+  ENT --> LK
+  ENT --> BS
+  ENT --> SEL
+  ENT --> SE
+  ENT --> BT
   COORD --> LI
   COORD --> SW
+  COORD --> CV
+  COORD --> CL
+  COORD --> LK
+  COORD --> BS
+  COORD --> SEL
+  COORD --> SE
   COORD --> BT
   HCOORD --> SE
   BM --> SE
   BM --> BT
-  ENT --> LI
-  ENT --> SW
   LI -->|"entities and devices"| ER
   SW --> ER
+  CV --> ER
+  CL --> ER
+  LK --> ER
+  BS --> ER
+  SEL --> ER
   SE --> ER
   BT --> ER
-  LI --> DR
-  SW --> DR
+  ENT -->|"one device per function,<br/>via_device the controller"| DR
 
   APIC -->|"api_base discovery"| WK
   APIC -->|"reads and writes"| TP
@@ -330,20 +372,28 @@ flowchart TB
 | Component | Owns | Does **not** own | If removed |
 |---|---|---|---|
 | `config_flow.py` | the only place credentials, transport mode and a certificate pin are decided; probe-before-prompt for discovery; options and reauth | any runtime polling or writing | integration cannot be added or reconfigured at all; existing entries keep working until an auth or certificate failure, which then has nowhere to go |
-| `__init__.py` | entry lifecycle: migrate → client → coordinator → backup manager → health → device → service → platforms → leftover sweep → initial backup | deciding *what* the controller publishes | nothing loads |
+| `__init__.py` | entry lifecycle: migrate → client → coordinator → backup manager → health → device → service → platforms → initial backup | deciding *what* the controller publishes; **no longer deletes any entity** (every exported type has a platform again since v0.8.0) | nothing loads |
 | `api.py` (`WiserKnxClient`) | the single HTTP chokepoint for both controller APIs; the `Accept: application/vnd.api+json` header; 5xx retry; the exception taxonomy that decides reauth vs retry; `api_base` validation | interpreting values, classifying, or deciding entity state | everything controller-facing stops; `tls.py`'s cert read still works |
-| `coordinator.py` | polling cadence, the locations/functions cache and its staleness policy, enum-verbatim writes, optimistic local state, and the auth/TLS → reauth escalation | HTTP, classification rules, backups | lights, switches and the Rescan button die. The backup *logic* is independent of it — but the manager and the health coordinator are **attached to** this object (`coordinator.backup_manager`, `coordinator.health`) and `hass.data[DOMAIN][entry_id]` *is* the coordinator, so every platform reaches them through it. Backups survive a failing coordinator; they would not survive deleting it |
-| health coordinator | the five controller-health values, on an independent 5-minute cadence, best effort | the entity graph | five diagnostic sensors go away; entry still loads, and the entry would stop learning its MAC/serial-based `unique_id` |
-| `widgets.py` | classification only: Touch widget id → KNX URN → datapoint roles → title, in that order. Still classifies cover/climate/sensor so they can be *skipped* correctly | which platforms exist | every function would fall to the default and no light/switch split would survive |
+| `coordinator.py` | polling cadence, the locations/functions cache and its staleness policy, enum-verbatim writes, optimistic local state, the auth/TLS → reauth escalation, and `entity_plan` — the plan recomputed once per successful poll and shared by every platform | HTTP, classification rules, what an entity *means*, backups | every controller entity and the Rescan button die. The backup *logic* is independent of it — but the manager and the health coordinator are **attached to** this object (`coordinator.backup_manager`, `coordinator.health`) and `hass.data[DOMAIN][entry_id]` *is* the coordinator, so every platform reaches them through it. Backups survive a failing coordinator; they would not survive deleting it |
+| health coordinator | the controller-health values, on an independent 5-minute cadence, best effort | the entity graph | the health sensors go away; the entry still loads, and would stop learning its MAC/serial-based `unique_id` |
+| `widgets.py` | **function**-level classification: Touch widget id → KNX URN (matched on the *whole* URN) → datapoint roles → title, in that order, to one of light/switch/cover/climate/lock/sensor/binary_sensor/scene/skip | which datapoint becomes which entity | every function would fall to the default category and the platform split would collapse |
+| `datapoints.py` | **datapoint**-level roles: `dic:dpa.*` archetype → the Touch slot it came from (`DPA_ROLES`, every row measured), with the `dpt.*` type as fallback; the binary-token map; the `fct.se8000` F→C conversion. Pure, HA-free, unit-tested | which platform a role lands on | every entity would be back to guessing from titles and units; two `dpt.scaling` slots on one function could not be told apart |
+| `plan.py` | the entity plan: which composite a function supports (`composite_is_viable`), which datapoints that composite consumes, and the platform for every datapoint left over (`datapoint_platform`). Pure, HA-free, unit-tested | reading or writing anything | platforms would each re-derive their own entity set and a datapoint could end up on two platforms, or on none |
 | `health.py` | parsing `deviceInfo` + `SystemStatus` into flat values | fetching them | health sensors go blank |
 | `identity.py` | the stable entry `unique_id` (MAC, then serial) and the pre-0.7 id migration | entity or device ids — those are keyed on `entry_id` | entries would key on host/IP again and DHCP churn would duplicate them |
 | `tls.py` | trust-on-first-use: read a certificate without trusting it, normalise and display the SHA-256 | deciding to trust (the user does) | self-signed controllers could only be used with verification off |
-| `backup.py` | the lock, the schedule, the **refusal to store a body that is not a readable ZIP**, atomic write at `0600`, prune, `last_error`, and the HA pre/post-backup hooks | the controller's backup format or password rule; whether the archive can actually be *restored* | the project's main feature is gone; lights and switches are unaffected |
+| `backup.py` | the lock, the schedule, the **refusal to store a body that is not a readable ZIP**, atomic write at `0600`, prune, `last_error`, and the HA pre/post-backup hooks | the controller's backup format or password rule; whether the archive can actually be *restored* | controller backups are gone; every other entity is unaffected |
 | `backup_utils.py` | the password rule, filenames, listing, pruning and the ZIP parse / entry count — pure, HA-free, unit-tested | any I/O decision | same as above |
-| `entity.py` | naming, area suggestion, `via_device` nesting and the "no datapoints ⇒ unavailable" rule | state semantics | lights/switches lose their device grouping and availability honesty |
-| `light.py` / `switch.py` | datapoint *selection* (type before title, units excluded) and the on/off/brightness mapping | the write actually taking effect | the only user-controllable entities disappear |
-| `sensor.py` | the diagnostic **Last backup** sensor plus the five health sensors | anything derived from controller *functions* — those sensors were removed in v0.5.0 | diagnostics go away; `_SENSOR_SUFFIXES` in `__init__.py` would then delete nothing |
-| `button.py` | **Create backup** and **Rescan devices**, both `EntityCategory.CONFIG` | scheduling | manual backup still available via the service; rescan has no replacement |
+| `entity.py` | naming, area suggestion, `via_device` nesting, the "no datapoints ⇒ unavailable" rule, role lookup for composites, the datapoint entity base (unique id = `datapoint.id`), and `async_setup_plan_entities` — the one place entities are added, on setup *and* on every later poll, and the one place that never removes any | state semantics; what the plan says | entities would lose device grouping and availability honesty, and a device added in Touch would need a reload |
+| `light.py` | on/off, brightness as a percentage, RGB from the hex triplet and RGBW from the per-channel scaling slots | whether the write takes effect | dimmers and colour lights disappear |
+| `switch.py` | the function-level switch, plus a switch for a writable on/off datapoint no composite took (a thermostat's fan manual mode) | — | the most-used entities disappear |
+| `cover.py` | the KNX→HA position inversion, tilt, open/close via the movement object, and the deliberate refusal to advertise `STOP` | what the stop object's enum members mean (unmeasured) | shutters become a position number and a select |
+| `climate.py` | the current/setpoint split, operation mode as a **preset** (not an HVAC mode), heat/cool + the `dpa.417.72` thermostat switch as the HVAC mode, fan modes, and the `fct.se8000` conversion on both directions | the thermostat obeying (202 is not confirmation) | thermostats become a temperature sensor and a setpoint number |
+| `lock.py` | lock/unlock, and the fact that `ajar` is neither | — | smart locks become a select and a sensor |
+| `binary_sensor.py` | the role → device-class map, the alarm/contact classes that can only come from the function, and the published-token → on/off mapping | which datapoints are binary (that is `datapoints.py`) | alarms and contacts become string sensors |
+| `select.py` / `number.py` | the generic fallbacks for a writable enum and a writable number, so no exported control is invisible | role semantics | anything not modelled by a richer platform becomes read-only |
+| `sensor.py` | a sensor per readable datapoint (units and device classes from the role, never from the controller's own unit string), the seven controller-health sensors, the **Last backup** sensor, and the exported function/datapoint counts | fetching anything | every reading the controller publishes becomes invisible, and so does the controller's own state |
+| `button.py` | **Create backup** and **Rescan devices** (both `EntityCategory.CONFIG`), plus one button per KNX scene number | scheduling | manual backup still available via the service; rescan and scene recall have no replacement |
 | `const.py` | every tunable and every KNX URN | behaviour | — |
 
 ### Explicitly not part of this system
@@ -356,11 +406,17 @@ flowchart TB
 - **No push / subscription path.** `manifest.json` declares `iot_class: local_polling`. The spec
   offers `POST /subscribe`, `GET /messaging/ws` and the whole `/subscriptions/*` family; none is
   opened. All freshness comes from polling.
-- **No platforms beyond button, light, switch, sensor.** `binary_sensor`, `cover` and `climate`
-  were removed in v0.5.0, as were the sensors built from controller functions. `__init__.py`
-  actively deletes leftovers of those.
-- **No colour control.** RGB/RGBW and DALI functions classify as lights but only on/off and
-  brightness are implemented.
+- **No scenes, schedulers or automations from the controller's own engine.** They exist on the
+  LogicMachine side (Configurator `scenes`, `schedulers`, the automation plugin) and the 3rd-party
+  API does not expose them — all of those paths answer 404 locally. A KNX `fct.scene` *function*
+  is exposed, as one button per published scene number, because that is a datapoint write.
+- **No colour temperature, no transitions, no effects.** Colour is RGB and RGBW only; the
+  controller publishes nothing else for a light.
+- **No cover stop.** Deliberate — see the data path, item 16.
+- **No history backfill from the controller.** `vis/graph` is the only series endpoint, it reads
+  the `objectlog` table rather than the trend configuration, and object ids are recycled: a
+  freshly created object came back carrying 100+ rows left by previous occupants of its id.
+  Recorder history is Home Assistant's own.
 - **No backup download from the HA UI, and no copying backups elsewhere** (e.g. `/media`).
 - **No pagination.** Deliberate: `?offset=`/`?limit=` are ignored by this firmware.
 - **No `title` writes.** `PUT /functions|locations/attributes` answers 405; renaming happens in HA.
@@ -385,11 +441,18 @@ flowchart TB
   G1 -->|"GATE 5: cached 1 h.<br/>Refresh failure keeps serving the cache,<br/>retries at 5 min, dies at 3 h"| CD
 
   CD -->|"join on schneider:parentFunction"| FN["functions with datapoints attached"]
-  FN -->|"classify_function:<br/>widget id, then WHOLE URN,<br/>then datapoint roles, then title"| PL["platform: light or switch"]
-  PL -->|"GATE 6: entity set is computed ONCE,<br/>at platform setup. A function that<br/>appears later gets NO entity<br/>until the entry reloads"| E["HA entity"]
+  FN -->|"classify_function:<br/>widget id, then WHOLE URN,<br/>then datapoint roles, then title"| CAT["category: light, switch, cover,<br/>climate, lock, sensor,<br/>binary_sensor, scene, skip"]
+  FN -->|"datapoint_role:<br/>dic:dpa.* archetype = the widget slot,<br/>dpt.* only as fallback"| ROLE["role per datapoint"]
+  CAT --> PLAN["plan_entities"]
+  ROLE --> PLAN
+  PLAN -->|"composite_is_viable:<br/>no writable slot = no composite,<br/>so a misread category degrades<br/>to sensors instead of breaking"| COMP["composite entity:<br/>light, switch, cover, climate, lock"]
+  PLAN -->|"every datapoint the composite<br/>did not consume"| DPE["datapoint entity:<br/>sensor, binary_sensor,<br/>select, number, switch, button"]
+  COMP --> E["HA entity"]
+  DPE --> E
+  E -->|"GATE 6: the plan is recomputed on every<br/>successful poll and new entities are added.<br/>Nothing is ever removed, because a<br/>missing datapoint means a failed read"| REG["entity registry"]
 
-  E -->|"TRANSFORM: percent to 0-255,<br/>int truncation"| HAST["HA state - read path"]
-  E -->|"TRANSFORM: 0-255 to percent,<br/>int truncation"| WR["write value"]
+  E -->|"TRANSFORM: percent to 0-255 for brightness,<br/>100 minus position for a cover,<br/>F to C for fct.se8000"| HAST["HA state - read path"]
+  E -->|"TRANSFORM: the same, inverted"| WR["write value"]
 
   WR -->|"GATE 7: value replaced by the<br/>datapoint's own enum member, verbatim"| PUT["PUT /datapoints/values"]
   PUT -->|"GATE 8: 202 Accepted means<br/>WELL-FORMED, not APPLIED"| CTL["CONTROL group object"]
@@ -432,11 +495,17 @@ flowchart TB
    5 minutes, and abandoned at 3 hours — at which point entities go unavailable rather than serving
    stale structure forever.
 
-6. **Rescan does not create entities.** `light.py` and `switch.py` enumerate
-   `coordinator.data["functions"]` exactly once, in `async_setup_entry`, and call
-   `async_add_entities` once. Nothing listens for new functions. So a newly added KNX widget shows
-   up in `coordinator.data` after a rescan but gets **no entity** until the config entry is
-   reloaded (options change, HA restart, or a manual reload).
+6. **Entities follow the plan, and the plan only grows.** Every platform registers the same
+   helper (`entity.py::async_setup_plan_entities`), which reads `coordinator.entity_plan` at setup
+   *and* on every coordinator update, and adds whatever key it has not seen before. That is what
+   makes a widget added in Touch appear without a reload — it has to be, because a function is
+   published seconds to minutes before its datapoints, so the set at setup time is routinely
+   incomplete. The deliberate asymmetry: **nothing is ever removed**, because a datapoint missing
+   from a poll means the controller did not answer (or the installer set `disable_export`), not
+   that a device is gone. Stale entities are left for the user to delete; up to v0.7 the entry
+   setup deleted "leftover" entities instead, which is exactly the behaviour a 500 could weaponise.
+   The plan is computed once per poll in the coordinator rather than once per platform, because
+   `se-logic-thermostat` alone can produce 25 functions and 48 datapoints.
 
 7. **Read slot ≠ write slot.** A widget's control and status objects collapse into **one**
    datapoint: its `value` is the status object, a write to it drives the control object. So both
@@ -469,18 +538,42 @@ flowchart TB
     to 0 %**, so asking a dimmer for its lowest brightness turns it off. Neither is a controller
     behaviour.
 
-12. **Datapoint selection is pass-ordered on purpose.** Units are excluded first (a socket's
-    read-only `dpt.power` in W and a dimmer's `%` brightness are measurements, never the on/off
-    slot), then the datapoint *type* decides, then titles, then first-writable — in **separate
-    passes**, so the controller's listing order cannot let a title-matched datapoint beat a
-    type-matched one. Titles are user-defined KNX group-object names and cannot be trusted.
-    A dimmer that publishes only brightness correctly has *no* switch datapoint; `is_on` and the
-    turn on/off calls fall back to brightness.
+12. **Datapoint selection is by archetype, not by title or unit.** Each datapoint carries a
+    `dic:dpa.*` archetype that identifies the Touch **slot** it came from, which nothing else in
+    the API exposes: `dpa.800.65` is a shutter's height and `dpa.800.66` its slats, `dpa.65533.51`
+    a battery level and `dpa.65533.52` its low-battery flag, although each pair shares one
+    `dpt.*`. The sharpest case is a thermostat, which publishes **two** writable `dpt.switch`
+    datapoints — `dpa.417.72` is the thermostat's own on/off and `dpa.417.70` its fan manual mode —
+    so a lookup by type alone would turn the fan off when Home Assistant asked for the thermostat.
+    Titles are user-defined KNX group-object names in the installer's own language and are used
+    for nothing but a last-resort category guess. A dimmer that publishes only brightness
+    correctly has *no* switch datapoint; `is_on` and the turn on/off calls fall back to brightness.
 
 13. **Match on the whole URN.** Vendor types exist
     (`urn:knx:fct.schneider.logicThermostat.type.thermostat`). Splitting on `.` and taking the last
     segment reads that as `thermostat`; taking the segment after `fct.` reads it as `schneider`.
     `widgets.py` substring-matches the full URN for exactly this reason.
+
+14. **A misclassified function degrades, it does not break.** `plan.py::composite_is_viable`
+    refuses to build a composite whose datapoints cannot drive it: `fct.temperatureAir` with one
+    reading and `fct.iTRV` with one heating demand are both classified climate and both fall
+    through to plain sensors rather than becoming thermostats with no controls. Everything the
+    composite does not consume becomes its own entity, so the worst case of a wrong category is a
+    sensor where a richer entity could have been — never a missing reading.
+
+15. **Two transforms are asserted, not measured.** A KNX height position counts travel *downwards*
+    (0 % = fully up) while Home Assistant counts how far a cover is *open*, so `cover.py` inverts
+    it; that is the KNX convention and HA's own KNX integration default, but this project has not
+    verified it against a real actuator. And `fct.se8000`'s F→C conversion is measured on the
+    *published* value only: undoing it on the read path follows from that measurement, while
+    redoing it on a setpoint write has never been seen on a bus. Both are called out in the README
+    with a request to report a mismatch.
+
+16. **The cover stop object is deliberately not wired up.** The stop slot is a KNX DPT 1.010
+    start/stop, but the controller publishes it as `dpt.step` with the enum `increase,decrease`,
+    and a value outside that enum is accepted with 202 and discarded. Which member stops a shutter
+    has not been measured, and guessing would *move* one, so `STOP` is not advertised and the
+    datapoint is exposed as a select instead.
 
 ### The backup path (the project's actual main feature)
 
@@ -548,21 +641,29 @@ Asymmetries on it:
 | Component | Reads | Publishes | Over |
 |---|---|---|---|
 | `config_flow.py` | discovery payloads; user form input; `/.well-known/knx`; `/locations`; `/custom/deviceInfo`; the peer certificate | a config entry (`data`: host, port, ssl, verify_ssl, username, password, api_base, certificate_fingerprint; `options`: backup_*), `DATA_INITIAL_BACKUP` | HA flow API; aiohttp; raw TLS socket |
-| `__init__.py` | entry `data` + `options`; health payload | client, coordinators, backup manager, controller device, the `create_backup` service, repair issues, entity deletions | HA registries, `hass.data[DOMAIN][entry_id]` |
+| `__init__.py` | entry `data` + `options`; health payload | client, coordinators, backup manager, controller device, the `create_backup` service, repair issues | HA registries, `hass.data[DOMAIN][entry_id]` |
 | `api.py` | both controller APIs | parsed dicts (locations, functions, datapoints), health dict, raw ZIP bytes, bool for a write | HTTPS + HTTP Basic |
-| `coordinator.py` | `api` collections | `{"locations", "functions", "datapoints"}` plus `UpdateFailed` / `ConfigEntryAuthFailed` | `DataUpdateCoordinator` listeners |
+| `coordinator.py` | `api` collections | `{"locations", "functions", "datapoints"}`, `entity_plan`, plus `UpdateFailed` / `ConfigEntryAuthFailed` | `DataUpdateCoordinator` listeners |
 | health coordinator | `api.async_get_health` | flat health dict | same |
-| `widgets.py` | a function dict | one of `light`/`switch`/`cover`/`climate`/`sensor`/`binary_sensor`/`skip` | pure call |
+| `widgets.py` | a function dict | one of `light`/`switch`/`cover`/`climate`/`lock`/`sensor`/`binary_sensor`/`scene`/`skip` | pure call |
+| `datapoints.py` | a datapoint dict (its `types`, `unit`, `enum`, `value`); a function's types | a role, an on/off state, a parsed number, a Celsius value | pure call |
+| `plan.py` | the functions of the last poll | `{platform: [spec]}`, where a spec is a composite (`function_id`) or a datapoint (`datapoint_id`, `role`, `diagnostic`) | pure call |
 | `health.py` | `deviceInfo`, `SystemStatus` | `device_id`, firmware, hardware, architecture, uptime, loads, memory %, storage % | pure call |
 | `identity.py` | a controller info payload, or a legacy unique id | a normalised MAC or a serial | pure call |
 | `tls.py` | a fingerprint string; the live peer certificate | normalised/displayable fingerprint, `aiohttp.Fingerprint` bytes | `ssl.get_server_certificate` in the executor |
 | `backup.py` | options (password, interval, keep); existing files' mtimes; `api` ZIPs | `0600` ZIP files, `last_backup`/`last_error`/`last_files`, listener callbacks, a debug line carrying the entry count | filesystem, HA timer, HA backup hooks |
 | `backup_utils.py` | a directory, a host, kinds, keep; a downloaded blob | validity bool, filenames, file lists, deletions, ZIP entry count (or `ValueError`) | pure + `pathlib` + `zipfile` |
-| `entity.py` | `coordinator.data`, `client.base_url` | entity name, `device_info`, `suggested_area`, availability, extra attributes | HA entity API |
-| `light.py` | the function's datapoints | `is_on`, `brightness`, `color_mode`; writes `on`/`off`/percent | coordinator |
-| `switch.py` | the function's datapoints | `is_on`; writes `on`/`off` | coordinator |
-| `sensor.py` | backup manager state; health coordinator | `Last backup` (timestamp + attributes) and 5 health sensors, all `DIAGNOSTIC` | HA entity API |
-| `button.py` | — | two `CONFIG` buttons | coordinator / backup manager |
+| `entity.py` | `coordinator.data`, `coordinator.entity_plan`, `client.base_url` | entity name, `device_info` (model = the KNX function type), `suggested_area`, availability, extra attributes, and the `async_add_entities` calls for every platform | HA entity API |
+| `light.py` | the function's datapoints | `is_on`, `brightness`, `color_mode`, `rgb_color`, `rgbw_color`; writes `on`/`off`, a percentage or a hex triplet | coordinator |
+| `cover.py` | the function's datapoints | position and tilt (inverted), `is_closed`/`is_opening`/`is_closing`, supported features; writes a position or `up`/`down` | coordinator |
+| `climate.py` | the function's datapoints | current and target temperature, HVAC mode, preset, fan mode, min/max from the datapoint; writes a Celsius setpoint, `heat`/`cool`, `on`/`off`, an enum member | coordinator |
+| `lock.py` | the function's datapoints | `is_locked`, `is_jammed`, `is_open`; writes `lock`/`unlock` | coordinator |
+| `binary_sensor.py` | one datapoint | `is_on`, device class | coordinator |
+| `select.py` | one datapoint | options (the published enum), current option; writes a member verbatim | coordinator |
+| `number.py` | one datapoint | value, min/max/step, unit; writes a number | coordinator |
+| `switch.py` | the function's datapoints, or one datapoint | `is_on`; writes `on`/`off` | coordinator |
+| `sensor.py` | backup manager state; health coordinator; one datapoint | `Last backup` (timestamp + attributes), 7 health sensors and 2 export counts (all `DIAGNOSTIC`), and a value per readable datapoint with a role-derived unit, device class and enum options | HA entity API |
+| `button.py` | — | two `CONFIG` buttons, plus one per scene number | coordinator / backup manager |
 
 ---
 
@@ -589,11 +690,15 @@ controller.
 
 ### Has no rollback
 
-- **`_remove_unsupported_entities` deletes registry entries**, every setup, for any
-  `binary_sensor`/`cover`/`climate` entity and any `sensor` whose unique id does not end in one of
-  `_SENSOR_SUFFIXES`. Registry removal takes the entity's customisations with it (name, area,
-  icon, hidden/disabled state). The practical trap: **adding a new sensor without adding its suffix
-  to `_SENSOR_SUFFIXES` means it is deleted on every single setup.**
+- **Entity deletion is gone, and that is the point.** Up to v0.7.x `_remove_unsupported_entities`
+  deleted every `binary_sensor`/`cover`/`climate` entity and any `sensor` whose unique id was not
+  on an allow-list, on **every** setup — and registry removal takes the entity's customisations
+  with it (name, area, icon, hidden/disabled state), which is not recoverable. v0.8.0 deleted that
+  code path. Nothing in this integration removes an entity now; what a user upgrading from
+  v0.5.0–v0.7.x already lost is not recoverable either. **Do not re-introduce a sweep**: the
+  controller can answer "no datapoints" for reasons that have nothing to do with the device
+  existing (a 500, an export being recomputed, `disable_export`), and a sweep turns any of those
+  into permanent data loss.
 - **Pruning unlinks files.** `prune_backups` calls `Path.unlink`. Past the `keep` count per kind,
   the file is gone.
 - **The backup password.** Lost ⇒ every stored ZIP is permanently unopenable.
@@ -618,7 +723,7 @@ controller.
 | HA asks to re-authenticate | `ConfigEntryAuthFailed` | either 401/403 (credentials changed on the controller) **or** a certificate that no longer matches the pin. The reauth flow distinguishes them |
 | One device shows **Unavailable** while the rest are fine | **not a fault** | the function is published but its datapoints have not attached yet — 15 s typically, minutes during config churn. Recovers on a later poll. `fct.content` (Content widget) legitimately never has any |
 | A widget configured in Touch has no HA device at all | the controller's export gates | needs **both** a write object and its status feedback; and `disable_export` suppresses export when stored as a real boolean (stored as the integer `1` it is ignored, so it *looks* set and is not). Neither is visible in the function/datapoint graph |
-| A new widget appears in the API but gets no entity | **the integration** — gate 6 | the entity set is built once at platform setup. Rescan refreshes data only. Reload the config entry |
+| A new widget appears in the API but gets no entity | the controller's export latency, then the integration | since v0.8.0 every platform adds what the plan grew on each poll, so a new device appears within one poll of its *datapoints* being published. A function with no datapoints yet produces nothing, by design |
 | A 6-gang switch shows one entity instead of six | the integration, if it ever stops enumerating | channel fan-out is 1:N; grouping must be by `schneider:parentFunction`, never by widget id, and must not stop at the first match |
 | A command does nothing, HA shows the new state anyway | the controller accepted and discarded it | 202 ≠ applied. Check the log for the `accepts only …` warning from `_enum_member`; if it is absent the value matched the enum and the write did reach the bus |
 | A command reaches the bus but the entity snaps back on the next poll | **not a fault** | the datapoint value is the *status* object. If no actuator bridges control → status, it will never follow. Optimistic state is the only honest option |
@@ -628,7 +733,12 @@ controller.
 | A backup fails with `Controller returned an invalid … backup` | the controller's answer, not the filesystem | HTTP 200 with a body that is not a readable ZIP (a JSON error, a login page). The response body *is* the archive, so it is parsed before it is stored, and the archive named in the message was **not** written. Never diagnose a stored archive by its size — the project archive grows with the trend data inside it, the entry count is the invariant |
 | …and a new `_system_` file is on disk anyway, while **Last backup** still shows the old one | **not a fault, and not a partial write** | kinds are validated and written one at a time in order, so a refused `project` body leaves an already-renamed, complete `system` file behind. That round's prune is also skipped, so the `keep` count can sit one over until the next successful backup |
 | A stored backup cannot be opened, but no error was ever reported | **the backup password, or the controller** | the ZIP gate only proves the bytes parse as an archive; it never opens an entry and a zero-entry archive passes it. Nothing in this repo restores, so "a backup exists" is not "a backup works" — check the password first |
-| Entities vanished after an upgrade | `_remove_unsupported_entities` | intentional for `binary_sensor`/`cover`/`climate` and function-derived sensors (removed in v0.5.0). Unintentional if a *new* sensor's suffix was not added to `_SENSOR_SUFFIXES` |
+| Entities vanished after an upgrade | upgrades **to** v0.5.0-v0.7.x | those versions deleted `binary_sensor`/`cover`/`climate` entities and function-derived sensors on every setup. v0.8.0 removed that sweep entirely, so nothing is deleted any more — the platforms are back and the entities are re-created with their old unique ids |
+| Entities left over after the v0.8.0 upgrade, permanently unavailable | **not a fault** | function-keyed sensors from before v0.5.0 are not re-adopted: sensors are now keyed on `datapoint.id`. Delete them in the UI |
+| A reading, control or flag the controller exports has no entity | the plan | `plan.py` assigns a platform to every datapoint; only the `dpt.uuid` automation-trigger virtuals and whole `skip` categories (media, camera, Content) are dropped on purpose. Anything else missing is a gap in `datapoint_platform` |
+| A thermostat's fan turned off when the thermostat was turned off | the integration, if roles ever merge again | the two are different archetypes (`dpa.417.72` the thermostat, `dpa.417.70` the fan manual mode) and carry different roles for this reason |
+| A cover's position reads inverted | the actuator's convention vs KNX's | `cover.py` assumes the KNX convention (0 % = fully up) and inverts for HA. Not verified against hardware |
+| An SE 8000 thermostat reads ~18 °C low or sets ~32 off | `fct.se8000`'s own F→C conversion | undone on the read path and redone on the write path. The read side follows a measurement; the write side has never been seen on a bus |
 | No backup files appear, no error anywhere | no valid backup password | an empty or rule-violating password makes `configured` False and backups are skipped silently by design. Set it in **Configure** |
 | Backup fails with HTTP 400 | the password rule | ≥ 8 chars with an upper-case letter, a lower-case letter and a digit, enforced by the controller |
 | Backup fails with HTTP 404 on the *initial* automatic backup while the button works | open, seen once | v0.5.1 names the failing endpoint and retries once after 60 s. Check the log if it recurs |
@@ -653,6 +763,12 @@ controller.
 | `PUT /datapoints/values` → 202, and 202 ≠ applied | **measured** | enum-verbatim probing: `on` produced a telegram, `1`/`true` produced nothing |
 | Control/status collapse into one datapoint | **measured** | writing an `se-ac-switch` status datapoint emitted a `groupwrite` to `object-1` |
 | `dpt.scaling` published as percent (raw 128 → `50`) | **measured** | written both ways round on the same object |
+| `dic:dpa.*` archetype ⇒ the Touch slot the datapoint came from | **measured** | every row of `datapoints.py::DPA_ROLES` comes from the skillset's `widget-api-matrix.json`: 47 widget types built three ways each, slot by slot |
+| Which `fct.*` a widget publishes, and with which datapoint types | **measured** | the same sweep; the mapping is the summary table in `widget-matrix.md` |
+| `fct.se8000` publishes `(bus − 32) × 5/9` and labels it `C` | **measured** on the read path | three bus values, cross-checked against a control `se-thermostat` on the same group address. **Undoing it on a write is inferred**, never observed |
+| A KNX height position is 0 % when fully up, so HA's position is its inverse | **asserted** | the KNX convention for DPT 5.001 and Home Assistant's own KNX integration default. Not measured here, and not reported by the API |
+| Which member of the stop object's `increase,decrease` enum stops a shutter | **unknown** | which is why `STOP` is not advertised and the datapoint is a select |
+| `dpt.R-G-B` carries a six-digit hex triplet | **observed-only** | the `3BHEX` unit and the measured values match it; a non-triplet value is reported as no colour rather than parsed |
 | `Accept: application/json` → 406 on the 3rd-party API | **measured** | probed |
 | Collections ignore `?offset=`/`?limit=` | **measured** | `items == total` on every request |
 | Export needs write object **and** status feedback | **measured** | a test layout built with channels deliberately incomplete, compared against the dump |
