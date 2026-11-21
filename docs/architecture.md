@@ -573,7 +573,13 @@ flowchart TB
     start/stop, but the controller publishes it as `dpt.step` with the enum `increase,decrease`,
     and a value outside that enum is accepted with 202 and discarded. Which member stops a shutter
     has not been measured, and guessing would *move* one, so `STOP` is not advertised and the
-    datapoint is exposed as a select instead.
+    datapoint is exposed as a select instead. Two things measured since **narrow** it without
+    closing it: a bus write of raw 1 to a stop object made the API publish `increase` (skillset
+    widget sweep, 2026-11-11), and the encoder maps a member by name to its DPT-defined bit rather
+    than by list position, in both directions (2026-11-21, `docs/controller-api.md`). Together
+    those imply `increase` → raw 1 → DPT 1.010 *Stop*, but the write direction on a `dpt.step`
+    datapoint has still never been put on a bus, and an inference is not a measurement when the
+    failure mode is a shutter that moves instead of stopping.
 
 ### The backup path (the project's actual main feature)
 
@@ -767,7 +773,9 @@ controller.
 | Which `fct.*` a widget publishes, and with which datapoint types | **measured** | the same sweep; the mapping is the summary table in `widget-matrix.md` |
 | `fct.se8000` publishes `(bus − 32) × 5/9` and labels it `C` | **measured** on the read path | three bus values, cross-checked against a control `se-thermostat` on the same group address. **Undoing it on a write is inferred**, never observed |
 | A KNX height position is 0 % when fully up, so HA's position is its inverse | **asserted** | the KNX convention for DPT 5.001 and Home Assistant's own KNX integration default. Not measured here, and not reported by the API |
-| Which member of the stop object's `increase,decrease` enum stops a shutter | **unknown** | which is why `STOP` is not advertised and the datapoint is a select |
+| Which member of the stop object's `increase,decrease` enum stops a shutter | **inferred, not measured** | raw 1 inbound published `increase` (2026-11-11), and a member encodes to its DPT bit rather than its list index (2026-11-21) ⇒ `increase` is DPT 1.010 Stop. The write has never been seen on a bus, so `STOP` stays unadvertised and the datapoint stays a select |
+| An enum member encodes by name, not by list position | **measured** | `dpt.heatCool` published `["heat","cool"]`; `heat` → raw `01`, `cool` → raw `00`, decoding the same way back |
+| The function/datapoint graph is a cache the `apit3` daemon regenerates | **measured** | with that daemon stopped: 200s, live values, and no new widget exported at any wait |
 | `dpt.R-G-B` carries a six-digit hex triplet | **observed-only** | the `3BHEX` unit and the measured values match it; a non-triplet value is reported as no colour rather than parsed |
 | `Accept: application/json` → 406 on the 3rd-party API | **measured** | probed |
 | Collections ignore `?offset=`/`?limit=` | **measured** | `items == total` on every request |

@@ -102,6 +102,17 @@ well-formed body and then silently discards a value that is not a member of the 
 coordinator matches the value against the datapoint's own `enum` and logs a value that
 matches no member.
 
+**An enum member is encoded by its name, not by its position in the list** (measured
+2026-11-21 on the reference controller, API write watched on the KNX bus). `dpt.heatCool`
+is published with `enum: ["heat", "cool"]`; writing `heat` put raw `01` on the group object
+and `cool` put raw `00`, which is DPT 1.100 (0 = cool, 1 = heat) — i.e. the *reverse* of the
+published order, and the read side decodes the same mapping back. So the order of `enum` is
+presentation only and carries **no** information about the raw value behind a member. This is
+why the shutter stop object (`docs/architecture.md`, data path item 16) cannot be settled by
+reading its enum: `increase,decrease` says nothing about which member is DPT 1.010 *Stop*.
+What it does establish is that the encoder and the decoder agree, so the one measurement that
+would settle it is writing each member and watching the bus.
+
 **Control and status collapse into one datapoint.** The datapoint's value is the status
 object; a write to it drives the control object. So optimistic *and* pessimistic state are
 both wrong in general: where an actuator bridges control → status the value follows shortly,
@@ -125,6 +136,30 @@ looks set in the Touch config while having no effect. A fully configured widget 
 be absent from the API for a reason invisible in the function/datapoint graph. There is no
 room-level equivalent (`a=save_room_settings` answers 404 on this firmware). The firmware's
 own `requiredForApp` tag is **not** the gate and has been measured wrong in both directions.
+
+**The export is a cache, and the process that maintains it can be absent while the API still
+answers** (measured 2026-11-21 on the reference controller). The function/datapoint graph is
+not computed per request: the `apit3` app's daemon regenerates it when the Touch
+configuration's CRC changes, and the HTTP handlers serve the cached result with live values
+read separately. On that controller the daemon was **not running** — `touch3`,
+`cloud-connector` and `management` were, `apit3` was not — and the effect was precisely
+split:
+
+| | behaviour with the daemon down |
+|---|---|
+| `GET /functions`, `GET /datapoints` | 200, complete, no error anywhere |
+| datapoint **values** | still live: a bus write showed up within 5 s |
+| a **new or re-slotted widget** | never appears, at any wait |
+
+So "the API answers and my entities still work" does **not** mean the export is current, and a
+widget that is correctly configured can be missing for a reason that is invisible from the
+API: no 5xx, no empty collection, nothing for the integration to detect. Nothing restarts an
+app daemon that dies either — the vendor's launcher writes a pid and refuses to double-start,
+and the minutely `apps` cron only runs the store's `cron` scripts — so the freeze lasts until
+someone starts it or the controller reboots. If an installation reports that a widget added in
+Touch never shows up in Home Assistant while everything else keeps working, this is the first
+thing to check, and it is checkable only on the controller (`ps | grep apit3`). The
+integration's "Rescan devices" button cannot help: it re-reads the same cache.
 
 **A function is published before its datapoints.** Measured on `se-alarm-water`,
 `se-light-dimmer-rotary` and `se-thermostat-vdc`: the function existed with zero datapoints
