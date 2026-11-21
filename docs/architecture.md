@@ -1,6 +1,6 @@
 # Architecture
 
-Diagram current as of 62fcfb6009758b2c8edc9f4d1c8d90818eb99a17 — 2026-11-20
+Diagram current as of 5f3068e1a6dd320fc948c186f9ac669d024fa002 — 2026-11-21
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
 a Wiser for KNX controller — config flow and options, the coordinators, the API client, every
@@ -92,7 +92,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |                          +------------+---------------+              |              |
  |                                       | (40..48)                     | (49)         |
  |   const.py (39) supplies every constant above; identity.py (31) the stable ids;     |
- |   backup_utils.py (37) the pure password / filename / prune helpers                 |
+ |   backup_utils.py (37) the pure password / filename / prune / ZIP-parse helpers     |
  +=======================================|==============================|=============+
                                          |     TRUST / OWNERSHIP BOUNDARY
                                          |     HTTPS:443, HTTP Basic (admin),
@@ -155,7 +155,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 14 | `__init__` | service registry | register/remove `wiser_for_knx.create_backup` |
 | 15 | service call | **every** loaded entry's backup manager | fan-out, no target selector |
 | 16 | HA backup subsystem | `backup.async_pre_backup` / `async_post_backup` | pull; never blocked by failure |
-| 17 | backup manager | `<config>/wiser_backups/*.zip` | write (temp+rename) and **unlink** on prune |
+| 17 | backup manager | `<config>/wiser_backups/*.zip` | write (parse-as-ZIP, temp, `chmod 0600`, rename) and **unlink** on prune |
 | 18 | backup manager | HA executor | blocking filesystem work off the loop |
 | 19 | `async_track_time_interval` | `backup manager._scheduled_backup` | timer, every `backup_interval_hours` |
 | 20 | HA shared aiohttp session | `api.WiserKnxClient` | injected; **not** used in pinned-cert mode |
@@ -175,7 +175,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 34 | health sensors | health coordinator | pull from its last payload |
 | 35 | buttons | backup manager / `coordinator.async_refresh_structure` | one-shot commands |
 | 36 | `entity.py` | `coordinator.data`, `client.base_url` | name, area, availability, `configuration_url` |
-| 37 | backup manager | `api.async_get_backup`, `backup_utils` | download, name, list, prune |
+| 37 | backup manager | `api.async_get_backup`, `backup_utils` | download, **validate as a ZIP**, name, list, prune |
 | 38 | `api` | `tls.fingerprint_bytes` | builds `aiohttp.Fingerprint` once |
 | 39 | `const.py` | everything | constants only, no behaviour |
 | 40 | `api` | `GET /.well-known/knx` | unauthenticated; returns `api.base` |
@@ -185,8 +185,8 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 44 | `api` | `PUT {api_base}/datapoints/values` | write; 202 before deciding |
 | 45 | `api` | `GET /api/management/v1/custom/deviceInfo` | identity + firmware |
 | 46 | `api` | `GET /api/management/v1/flashsys/Status/SystemStatus` | health |
-| 47 | `api` | `POST /api/management/v1/flashsys/system/backupConfiguration` | system ZIP |
-| 48 | `api` | `POST /api/management/v1/scada-main/general/backup` | project ZIP |
+| 47 | `api` | `POST /api/management/v1/flashsys/system/backupConfiguration` | system ZIP; the **body is the archive**, no envelope |
+| 48 | `api` | `POST /api/management/v1/scada-main/general/backup` | project ZIP; same, and its size drifts upwards |
 | 49 | `tls._fetch_fingerprint` | raw TLS handshake on `host:port` | **second boundary crossing**, no aiohttp, no credentials |
 | 50 | Touch config | 3rd Party API | gated and asynchronous; see §4 |
 | 51 | datapoint write | CONTROL group object → KNX bus → actuator | write direction |
@@ -225,13 +225,13 @@ flowchart TB
       INIT["__init__.py<br/>migrate, setup, unload,<br/>leftover sweep, service,<br/>initial-backup task"]
       COORD["coordinator.py<br/>datapoints every 10 s<br/>static cache 1 h / retry 5 min / die 3 h<br/>enum-verbatim writes<br/>optimistic local state"]
       HCOORD["health coordinator<br/>5 min, best effort"]
-      BM["backup.py<br/>manager, lock, schedule, prune<br/>plus HA pre/post backup hooks"]
+      BM["backup.py<br/>manager, lock, schedule, prune<br/>ZIP gate then temp, 0600, rename<br/>plus HA pre/post backup hooks"]
       APIC["api.py WiserKnxClient<br/>the only aiohttp caller<br/>5xx retried 3x<br/>api_base regex-guarded"]
       TLSM["tls.py<br/>fingerprint pin, fetch, format"]
       IDM["identity.py<br/>MAC / serial, v1 id migration"]
       WID["widgets.py<br/>URN and datapoint classification"]
       HLT["health.py<br/>deviceInfo plus SystemStatus parsing"]
-      BU["backup_utils.py<br/>password rule, filenames, prune"]
+      BU["backup_utils.py<br/>password rule, filenames, prune,<br/>ZIP parse and entry count"]
       ENT["entity.py<br/>base entity, controller device info"]
       LI["light.py"]
       SW["switch.py"]
@@ -245,7 +245,7 @@ flowchart TB
     WK["GET /.well-known/knx<br/>unauthenticated, returns api.base"]
     TP["3rd Party API /api/w4knx/3rdparty/v1<br/>GET /locations, /functions, /datapoints<br/>PUT /datapoints/values"]
     PUSH["Push API: POST /subscribe,<br/>GET /messaging/ws, /subscriptions<br/>NEVER OPENED by this integration"]
-    MG["Management API /api/management/v1<br/>GET /custom/deviceInfo<br/>GET /flashsys/Status/SystemStatus<br/>POST backupConfiguration<br/>POST scada-main/general/backup"]
+    MG["Management API /api/management/v1<br/>GET /custom/deviceInfo<br/>GET /flashsys/Status/SystemStatus<br/>POST backupConfiguration<br/>POST scada-main/general/backup<br/>backup body IS the archive, no envelope"]
     EXPORT["Export engine<br/>gated and asynchronous"]
     TOUCH["Touch widget configuration<br/>slots, channels, disable_export<br/>unreadable over both APIs"]
     GOC["CONTROL group object"]
@@ -338,8 +338,8 @@ flowchart TB
 | `health.py` | parsing `deviceInfo` + `SystemStatus` into flat values | fetching them | health sensors go blank |
 | `identity.py` | the stable entry `unique_id` (MAC, then serial) and the pre-0.7 id migration | entity or device ids — those are keyed on `entry_id` | entries would key on host/IP again and DHCP churn would duplicate them |
 | `tls.py` | trust-on-first-use: read a certificate without trusting it, normalise and display the SHA-256 | deciding to trust (the user does) | self-signed controllers could only be used with verification off |
-| `backup.py` | the lock, the schedule, atomic write, prune, `last_error`, and the HA pre/post-backup hooks | the controller's backup format or password rule | the project's main feature is gone; lights and switches are unaffected |
-| `backup_utils.py` | the password rule, filenames, listing and pruning — pure, HA-free, unit-tested | any I/O decision | same as above |
+| `backup.py` | the lock, the schedule, the **refusal to store a body that is not a readable ZIP**, atomic write at `0600`, prune, `last_error`, and the HA pre/post-backup hooks | the controller's backup format or password rule; whether the archive can actually be *restored* | the project's main feature is gone; lights and switches are unaffected |
+| `backup_utils.py` | the password rule, filenames, listing, pruning and the ZIP parse / entry count — pure, HA-free, unit-tested | any I/O decision | same as above |
 | `entity.py` | naming, area suggestion, `via_device` nesting and the "no datapoints ⇒ unavailable" rule | state semantics | lights/switches lose their device grouping and availability honesty |
 | `light.py` / `switch.py` | datapoint *selection* (type before title, units excluded) and the on/off/brightness mapping | the write actually taking effect | the only user-controllable entities disappear |
 | `sensor.py` | the diagnostic **Last backup** sensor plus the five health sensors | anything derived from controller *functions* — those sensors were removed in v0.5.0 | diagnostics go away; `_SENSOR_SUFFIXES` in `__init__.py` would then delete nothing |
@@ -494,14 +494,41 @@ trigger: schedule (every backup_interval_hours, default 24) | Create backup butt
    |                  an empty/invalid password raises and backups are simply skipped
    v  POST backupConfiguration  -> system ZIP   (180 s timeout)
    v  POST scada-main/general/backup -> project ZIP
-   |     400 => password rule violated; 401/403 => auth; empty body => raise
-   v  executor: write <config>/wiser_backups/wiser_<host>_<kind>_<ts>.zip.tmp, rename
+   |     BOTH downloads complete before anything is written
+   |     400 => password rule violated; 401/403 => auth; timeout => connection error
+   v  executor, then PER KIND in order (system, then project):
+   |     GATE: zip_entry_count parses the body. HTTP 200 is NOT evidence:
+   |           the body IS the archive, so a JSON error or a login page
+   |           answered with 200 is refused here and never stored
+   v     write wiser_<host>_<kind>_<ts>.zip.tmp, chmod 0600, rename
    v  prune: keep newest `backup_keep` (default 7) PER KIND and PER HOST
    v  last_backup / last_error / last_files -> listeners -> Last backup sensor
 ```
 
 Asymmetries on it:
 
+- **The status code proves nothing about the body.** There is no JSON envelope and no `success`
+  key: the body *is* the archive. So the only check that means anything is parsing it, which is
+  why `zip_entry_count` runs before any write. Equally, the check that looks obvious is the wrong
+  one — the project archive's **byte size drifts upwards** on its own because the controller's
+  trend data lives inside it, while the entry count stays put. A size band would reject a good
+  archive exactly when a restore matters.
+- **The gate proves "readable ZIP", not "usable backup".** `zipfile` lists entries of a
+  password-protected archive without the password, so the parse never needs it — but it also
+  never opens an entry. A well-formed archive with **zero entries passes** (the unit tests assert
+  that a zero-entry ZIP is valid), and no code path anywhere in this repo has ever restored one.
+- **A per-kind failure is not all-or-nothing.** `_store` validates *and writes* one kind at a time
+  in `BACKUP_KINDS` order — `system`, then `project`. If the system body is a ZIP and the project
+  body is not, the freshly written **system file is already renamed into place** when the project
+  one raises, `prune_backups` never runs for that round, and `last_backup` / `last_files` are left
+  at their previous values while `last_error` is set. So the **Last backup** sensor reports a
+  failure next to a new file on disk that it does not list. Only the single-kind refusal is
+  covered by a test; this interleaving is read from the code (confirmed by running `_store`
+  against a temp directory, see [§8](#8-confidence)).
+- **`0600` is not retroactive.** The mode is applied to each file as it is written, so backups
+  taken by v0.7.0-beta.2 or earlier (the change is still in `Unreleased`) keep whatever the
+  process umask gave them. Nothing re-modes the directory, so a `wiser_backups/` folder will hold
+  both modes for as long as the old files survive pruning.
 - **Pruning is keyed on the host string.** Filenames are `wiser_<safe_host>_<kind>_<ts>.zip` and
   `list_backups` filters on that prefix. If the controller's address changes (DHCP, or the user
   edits the host), the old files are no longer matched by any prune pass and accumulate forever.
@@ -529,8 +556,8 @@ Asymmetries on it:
 | `health.py` | `deviceInfo`, `SystemStatus` | `device_id`, firmware, hardware, architecture, uptime, loads, memory %, storage % | pure call |
 | `identity.py` | a controller info payload, or a legacy unique id | a normalised MAC or a serial | pure call |
 | `tls.py` | a fingerprint string; the live peer certificate | normalised/displayable fingerprint, `aiohttp.Fingerprint` bytes | `ssl.get_server_certificate` in the executor |
-| `backup.py` | options (password, interval, keep); existing files' mtimes; `api` ZIPs | ZIP files, `last_backup`/`last_error`/`last_files`, listener callbacks | filesystem, HA timer, HA backup hooks |
-| `backup_utils.py` | a directory, a host, kinds, keep | validity bool, filenames, file lists, deletions | pure + `pathlib` |
+| `backup.py` | options (password, interval, keep); existing files' mtimes; `api` ZIPs | `0600` ZIP files, `last_backup`/`last_error`/`last_files`, listener callbacks, a debug line carrying the entry count | filesystem, HA timer, HA backup hooks |
+| `backup_utils.py` | a directory, a host, kinds, keep; a downloaded blob | validity bool, filenames, file lists, deletions, ZIP entry count (or `ValueError`) | pure + `pathlib` + `zipfile` |
 | `entity.py` | `coordinator.data`, `client.base_url` | entity name, `device_info`, `suggested_area`, availability, extra attributes | HA entity API |
 | `light.py` | the function's datapoints | `is_on`, `brightness`, `color_mode`; writes `on`/`off`/percent | coordinator |
 | `switch.py` | the function's datapoints | `is_on`; writes `on`/`off` | coordinator |
@@ -550,6 +577,7 @@ Asymmetries on it:
 | `tests/conftest.py` mocking | it injects `homeassistant.*` mocks **only when `homeassistant` is not importable** | so CI (HA installed) and the documented local Windows setup (HA not installed) run *different code* from the same test files. "Tests pass locally" and "tests pass in CI" are not the same claim |
 | Controller firmware | updated by the installer/user, out of band | the export gates, the 500 behaviour, `api.base` from `/.well-known/knx`, and the engineering-unit conversions are all firmware behaviour. Every measured fact in [docs/controller-api.md](controller-api.md) is pinned to firmware 3.1.0 |
 | The Touch widget configuration | an installer edits a widget; nothing notifies HA | devices appear, change type, fan out or vanish. Nothing is exported until the gates pass, and nothing becomes an *entity* until the entry reloads |
+| The size of the project backup | the controller's **trend data lives inside the archive** and keeps growing; nobody acts | `wiser_backups/` grows without any config change, and any size-based assertion about a backup rots on its own. Measured on the skillset's reference controller: 423–431 KB earlier, 452133 B on 2026-11-20, entry count unchanged throughout. This is why the entry count is the only thing compared |
 | The controller's self-signed certificate | rotation, regeneration, expiry | a pinned fingerprint stops matching → `WiserKnxCertificateError` → `ConfigEntryAuthFailed` → reauth, which shows the old and new fingerprints and never re-trusts automatically |
 | The controller's IP | DHCP | zeroconf/dhcp re-discovery updates the entry host when the stable `unique_id` matches. Already-written backup filenames keep the old host and fall out of pruning |
 | HA core | users update it | min supported is `hacs.json`'s `2024.12.0`. Known pending cosmetic deprecation: `via_device` in `entity.py` should become `via_device_id` |
@@ -597,7 +625,9 @@ controller.
 | Brightness comes back one or two steps off what was set | the integration's percent↔255 truncation | HA 128 → 50 % → 127. HA 1–2 → 0 % → off |
 | Device names or rooms are wrong / stale | the Touch config, then the 1 h cache | `PUT /functions\|locations/attributes` answers 405, so the API `title` is an initial value only; rename in HA. `/locations` is flat with every `type: null`, so the room name is used directly as the suggested area and no floor hierarchy exists |
 | A device moves to a different area after a restart | the flat `/locations` list | `suggested_area` is re-derived from `schneider:parentLocationName` each time the device is created |
-| A backup fails with `Controller returned an invalid … backup` | the controller's answer, not the filesystem | HTTP 200 with a body that is not a readable ZIP (a JSON error, a login page). The response body *is* the archive, so it is parsed before it is stored; nothing is written and the previous backups are kept. Never diagnose a stored archive by its size — the project archive grows with the trend data inside it, the entry count is the invariant |
+| A backup fails with `Controller returned an invalid … backup` | the controller's answer, not the filesystem | HTTP 200 with a body that is not a readable ZIP (a JSON error, a login page). The response body *is* the archive, so it is parsed before it is stored, and the archive named in the message was **not** written. Never diagnose a stored archive by its size — the project archive grows with the trend data inside it, the entry count is the invariant |
+| …and a new `_system_` file is on disk anyway, while **Last backup** still shows the old one | **not a fault, and not a partial write** | kinds are validated and written one at a time in order, so a refused `project` body leaves an already-renamed, complete `system` file behind. That round's prune is also skipped, so the `keep` count can sit one over until the next successful backup |
+| A stored backup cannot be opened, but no error was ever reported | **the backup password, or the controller** | the ZIP gate only proves the bytes parse as an archive; it never opens an entry and a zero-entry archive passes it. Nothing in this repo restores, so "a backup exists" is not "a backup works" — check the password first |
 | Entities vanished after an upgrade | `_remove_unsupported_entities` | intentional for `binary_sensor`/`cover`/`climate` and function-derived sensors (removed in v0.5.0). Unintentional if a *new* sensor's suffix was not added to `_SENSOR_SUFFIXES` |
 | No backup files appear, no error anywhere | no valid backup password | an empty or rule-violating password makes `configured` False and backups are skipped silently by design. Set it in **Configure** |
 | Backup fails with HTTP 400 | the password rule | ≥ 8 chars with an upper-case letter, a lower-case letter and a digit, enforced by the controller |
@@ -635,6 +665,11 @@ controller.
 | `PUT /functions\|locations/attributes` → 405 | **measured** | probed |
 | `/locations` is flat, every `type: null` | **measured** | dumps |
 | Both management backup endpoints return a password-protected ZIP | **measured** | `tools/probe_management.py`, and end-to-end in a real HA |
+| The backup response has no JSON envelope and no `success` key — the body is the archive | **measured** | the same probe; re-confirmed in the wiser-knx-skillset round of 2026-11-20 |
+| The project archive's size drifts upwards while its entry count holds | **measured, but not on this repo's controller** | the skillset's reference controller, **2026-11-20**: 452133 B against the 423–431 KB band recorded earlier, entry count identical at every measurement. A fact about that controller on that date — the direction is what the code relies on, not the numbers |
+| `zip_entry_count` refuses a non-ZIP body, and `_store` writes nothing for that kind | **inferred from code**, unit-tested | `tests/test_backup.py` covers the single-kind refusal, the `0600` mode and a zero-entry archive. No controller has been made to answer 200 with a non-archive, so the *trigger* has never been reproduced against real hardware |
+| The per-kind interleaving: a refused `project` leaves a written `system` file and skips that round's prune | **inferred from code**, confirmed locally | not covered by any test. Verified for this revision by calling `_store` directly against a temp directory with a valid `system` and an invalid `project` payload: the system file was present at `0600` and two over-`keep` files survived. Local filesystem only — no controller, no HA |
+| Entries of a password-protected ZIP list without the password | **inferred** | a property of the ZIP format and of `zipfile` (only entry *contents* are encrypted); asserted in the code's docstring, not probed against a real controller archive |
 | Backup password rule | **measured** | controller returns 400 below it |
 | `/custom/deviceInfo`, `/flashsys/Status/SystemStatus` field names | **measured** | management-API probe; `health.py` parses the real payloads |
 | Light/switch control end to end, including the 202 | **measured** | real HA against a real controller |
@@ -652,7 +687,11 @@ controller.
 
 - The push/subscription path, end to end. If it is ever adopted, `iot_class` changes from
   `local_polling` and gates 5 and 6 above change shape entirely.
-- Restore. Deliberately out of scope; the download side is the only half that was measured.
+- Restore. Deliberately out of scope; the download side is the only half that was measured. No
+  stored archive has ever been opened with its password or fed back to a controller, by anything
+  in this repo or any record in it. The ZIP gate narrows "we stored something" to "we stored
+  something that parses" — it does not reach "we stored something that restores", and nothing
+  here does.
 - Multi-controller setups. The code supports them (`hass.data[DOMAIN]` is keyed by `entry_id`,
   pruning and filenames are per host, the service fans out), but nothing in the repo records this
   being run against two controllers at once.
