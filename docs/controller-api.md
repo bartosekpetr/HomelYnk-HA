@@ -205,10 +205,24 @@ Spec is the vendor file `device-api.yaml` (kept outside the repo). Used by the i
 |---|---|---|
 | POST | `/flashsys/system/backupConfiguration` | system configuration backup (a few KB, ZIP) |
 | POST | `/scada-main/general/backup` | project/SCADA backup (hundreds of KB to a few MB, ZIP) |
-| GET | `/custom/deviceInfo` | firmware, hardware, architecture (used by the health sensors) |
+| GET | `/custom/deviceInfo` | firmware, hardware, architecture, uptime (used by the health sensors) |
 | GET | `/flashsys/Status/SystemStatus` | uptime, load, memory, partitions (used by the health sensors) |
 
 Backup request: headers `Accept: application/json, application/octet-stream, */*`, `Content-Type: application/json`, body `{"data":{"password":"<backup password>"}}`. The response is a ZIP with encrypted entries (`application/x-gzip` or `application/octet-stream` content type, but the magic bytes are `PK`). Status 400 = password rule violated; 401/403 = auth. Allow a long timeout (the client uses 180 s).
+
+**`deviceInfo` carries no MAC and no serial** on firmware 3.1.0 (measured 2026-11-21: the
+payload is exactly `architecture`, `fwVersion`, `hwVersion`, `lastUpdate`, `uptime`). So
+`identity.stable_id_from_device_info` returns `None` there and the runtime upgrade of an
+entry's `unique_id` to a hardware id never fires — a manually added entry keeps the id it was
+created with, and only the DHCP discovery path ever learns a MAC. Both are handled; the thing
+to avoid is assuming a hardware id will arrive. `/.well-known/knx` has no identity fields
+either, and the `id` in `/node` ended in `456789101112` on the reference unit, which reads as
+a vendor placeholder rather than a per-device value — do not adopt it from one controller.
+
+Both parsers were re-run against the live controller on 2026-11-21: `health.parse_health`
+produced firmware `3.1.0`, hardware `>=3.2`, the architecture string, uptime 823238 s, the
+three load averages, 16.8 % memory and 6.6 % storage, with `device_id: None` as above. Uptime
+cross-checked against the controller's own `uptime` command.
 
 **Password rule (enforced by the controller):** at least 8 characters, one upper-case letter, one lower-case letter, one digit. Implemented in `backup_utils.is_valid_backup_password`.
 

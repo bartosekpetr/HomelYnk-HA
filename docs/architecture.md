@@ -125,7 +125,8 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |                   PUT /functions|locations/attributes                               |
  |                                                                                     |
  |  Management API  /api/management/v1                                                 |
- |    GET  /custom/deviceInfo                  (45)  firmware, hardware, MAC/serial    |
+ |    GET  /custom/deviceInfo                  (45)  firmware, hardware, arch, uptime  |
+ |                                                   (NO MAC/serial on fw 3.1.0)      |
  |    GET  /flashsys/Status/SystemStatus       (46)  uptime, load, memory, partitions  |
  |    POST /flashsys/system/backupConfiguration(47)  system ZIP; body IS the ZIP       |
  |    POST /scada-main/general/backup          (48)  project ZIP; size drifts          |
@@ -655,7 +656,7 @@ Asymmetries on it:
 | `datapoints.py` | a datapoint dict (its `types`, `unit`, `enum`, `value`); a function's types | a role, an on/off state, a parsed number, a Celsius value | pure call |
 | `plan.py` | the functions of the last poll | `{platform: [spec]}`, where a spec is a composite (`function_id`) or a datapoint (`datapoint_id`, `role`, `diagnostic`) | pure call |
 | `health.py` | `deviceInfo`, `SystemStatus` | `device_id`, firmware, hardware, architecture, uptime, loads, memory %, storage % | pure call |
-| `identity.py` | a controller info payload, or a legacy unique id | a normalised MAC or a serial | pure call |
+| `identity.py` | a controller info payload, or a legacy unique id | a normalised MAC or a serial — **`None` on firmware 3.1.0**, which publishes neither (measured 2026-11-21: `deviceInfo` returns only `architecture`, `fwVersion`, `hwVersion`, `lastUpdate`, `uptime`), so a manually added entry keeps its original `unique_id` for life and only the DHCP path ever learns a MAC. Handled, not a bug; `/.well-known/knx` carries no identity either, and `/node`'s `id` ends in `456789101112`, which looks like a vendor placeholder and must not be adopted as identity on the evidence of one unit | pure call |
 | `tls.py` | a fingerprint string; the live peer certificate | normalised/displayable fingerprint, `aiohttp.Fingerprint` bytes | `ssl.get_server_certificate` in the executor |
 | `backup.py` | options (password, interval, keep); existing files' mtimes; `api` ZIPs | `0600` ZIP files, `last_backup`/`last_error`/`last_files`, listener callbacks, a debug line carrying the entry count | filesystem, HA timer, HA backup hooks |
 | `backup_utils.py` | a directory, a host, kinds, keep; a downloaded blob | validity bool, filenames, file lists, deletions, ZIP entry count (or `ValueError`) | pure + `pathlib` + `zipfile` |
