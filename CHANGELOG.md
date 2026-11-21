@@ -2,9 +2,48 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.8.0-beta.1 - 2026-11-21
 
-Brought in line with a new round of measurements on a real controller (written up in [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset); the findings that matter here are summarised in [docs/controller-api.md](docs/controller-api.md)).
+Everything the controller exports now becomes an entity. Built on the measured
+per-widget evidence in [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset)
+(47 widget types, each built three ways and read back over the local API).
+
+- **Covers, thermostats, locks, binary sensors and readings are back, and there is more of them.**
+  Shutters and blinds become `cover` entities with position and slat tilt; thermostats become
+  `climate` with a setpoint, heating/cooling, the KNX operation mode as a preset and a fan mode
+  where one exists; smart locks become `lock`; alarms, window and door contacts and motion
+  detectors become `binary_sensor` with a matching device class; temperatures, humidity, CO2 and
+  the other air-quality readings, illuminance, wind speed, a socket's active power and battery
+  levels become `sensor`. Lights gained RGB and RGBW colour.
+- **Nothing the controller publishes stays invisible.** Each device's remaining channels — its
+  battery level and low-battery alert, its online/offline device status, a valve drive's heating
+  demand, a shutter's "is moving" and last direction — become their own entities, and any other
+  writable channel becomes a `select` (when the controller publishes a list of accepted values) or
+  a `number`. KNX scenes become one button per scene number.
+- **New devices appear without restarting Home Assistant.** The controller publishes a device a
+  few seconds — and during heavy reconfiguration, minutes — before its channels, so entities are
+  now added as soon as they show up instead of only when the integration starts.
+- **Which channel is which is no longer guessed from its name.** Every datapoint carries a type
+  archetype that identifies the Touch widget slot it came from, which is the only way to tell a
+  shutter's height from its slats, a battery level from its low-battery alert, or a thermostat's
+  on/off from its fan manual mode — each pair looks identical otherwise, and the names are
+  whatever the installer typed. Among other things this means turning a thermostat off no longer
+  risks stopping its fan instead.
+- **The integration no longer deletes entities on startup.** Versions 0.5.0 to 0.7.x removed
+  covers, thermostats, binary sensors and function sensors from the entity registry on every
+  setup; those platforms exist again, so the sweep is gone. Upgrading restores your previous
+  lights and switches unchanged. Sensors from before 0.5.0 are *not* re-adopted — they are keyed
+  per channel now — so delete any that stay unavailable.
+- **More of the controller itself is visible**: CPU load over 5 and 15 minutes (disabled by
+  default), and how many functions and datapoints the controller is currently exporting — the
+  only in-band signal that a widget stopped being exported.
+- An SE 8000 thermostat's temperatures are corrected: that function type reports every temperature
+  through a Fahrenheit-to-Celsius conversion while still labelling it Celsius.
+- Covers deliberately have **no stop button**: the controller publishes a shutter's stop object
+  with the values `increase` and `decrease`, and which one stops the shutter has not been
+  verified, so it is offered as a separate entity rather than guessed at. See the README.
+
+Also in this release, from the earlier round of measurements on a real controller (the findings that matter here are summarised in [docs/controller-api.md](docs/controller-api.md)):
 
 - A read of the controller's datapoint or function list is now retried up to three times with a growing delay when the controller answers an HTTP 5xx. The controller does this now and then while it recomputes which group objects to export, and a single unretried failure made every entity unavailable (or, at startup, looked like an empty installation). A failed poll is still never treated as "the installation is empty" and never removes entities.
 - After about 30 seconds of the controller refusing to list its datapoints, the log explains the one known permanent cause: a Wiser Touch *Danfoss thermostat* (floor heating) widget whose *device status* object is configured makes that endpoint fail for as long as the widget exists. Nothing looks wrong in Home Assistant in that case, so it was previously undiagnosable.

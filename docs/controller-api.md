@@ -23,7 +23,7 @@ Spec: `schneider_knx_iot_3rdparty_v1_openapi.json` (repo root). JSON:API style.
 ### Findings from real dumps (`tools/dump_controller.py`)
 
 - Touch widget ids (`se-*`) are **not** exposed: `schneider:widgetId` is a hash and `widgetSettings` is mostly null. Classification therefore uses function URNs.
-- Function URNs seen: `switchingLight`, `dimming`, `switchingSocket`, `switching`, `power`, `airQuality`, `scene`, `alarm*`, `info`, `VDCThermostat`, `genericThermostat`, `temperatureAirFan`, `blindsVertical`, `weather`, `gauge`, `gasSensor`, `windowDoorSensor`, `movementDetector`, `iTRV`, `schneider.logicThermostat.type.thermostat`, `alarmAutomation`.
+- Function URNs seen: `switchingLight`, `dimming`, `dimmingDali`, `colorRGB`, `colorRGBW`, `switchingSocket`, `switching`, `switchingAC`, `switchingFan`, `power`, `airQuality`, `gasSensor`, `particleSensor`, `scene`, `alarm*` (`alarm`, `alarmFire`, `alarmGas`, `alarmWater`, `alarmWind`, `alarmTemp`, `alarmLight`, `alarmDewPoint`, `alarmAutomation`), `info`, `content`, `VDCThermostat`, `genericThermostat`, `temperatureAirFan`, `temperatureAir`, `temperatureFloor`, `se8000`, `airzone`, `iTRV`, `blindsVertical`, `blindsHorizontal`, `shadingRotary`, `blinds`, `smartLock`, `weather`, `gauge`, `windowDoorSensor`, `schneider.windoor.type.door`, `movementDetector`, `schneider.logicThermostat.type.thermostat`, `schneider.generic`. The function type → datapoint type mapping for every one of them is the summary table in the skillset's `widget-matrix.md`.
 - Datapoint titles are user-defined group-object names; every `valueType` is `"string"` (values are strings such as `on`, `off`, `"0"`).
 - Light/switch datapoint types: `dpa.417.70` + `dpt.switch` (switchingLight/Socket on/off), `dpa.418.61` + `dpt.switch` and `dpa.418.63` + `dpt.scaling` (dimmer on/off and brightness %, unit `%`), `dpa.901.51` + `dpt.power` (socket power, W, read-only).
 - Binary-sensor datapoints (not imported any more but classified): `dpa.810.51`, `344.51`, `808.51`, `811.51` (`open`/`close`), `414.63` (`start`/`stop`). Numeric readings such as lux must not be treated as binary.
@@ -43,6 +43,31 @@ A test layout was configured with some channels incomplete, then compared with t
 | Dimmer: value + switch, no status feedback objects | **no** |
 
 Conclusion: the controller publishes a channel through the 3rd-party API only when it has both a write object and its status feedback, even where the Touch widget documentation marks the status feedback as optional (light switch). This is a controller behaviour, not an integration filter. Each channel becomes its own function (a 3-channel light-switch widget gives 3 lights). "Device status" objects are not exposed as datapoints. The same group address may be used for the switch and its status feedback.
+
+### The `dic:dpa.*` archetype identifies the widget slot
+
+A datapoint's `meta["@type"]` carries **two** tags: a `dic:dpa.<archetype>` and a
+`urn:knx:dpt.<type>`. The datapoint *type* is ambiguous — `dpt.scaling` is a dimmer's
+brightness, a shutter's position, a battery level, a fan speed and a valve drive's
+heating demand — but the **archetype says which Touch slot the datapoint came from**,
+which the API exposes nowhere else. Measured across all 47 widget types in
+`widget-api-matrix.json`; `datapoints.py::DPA_ROLES` is the table, with the slot in a
+comment on every row. The load-bearing examples:
+
+| archetype | slot | note |
+|---|---|---|
+| `dpa.800.65` / `dpa.800.66` | shutter height / slat position | the only way to tell the two `dpt.scaling` apart |
+| `dpa.417.70` vs `dpa.417.72` | generic switch status vs **thermostat** on/off | a thermostat publishes both, and `417.70` is its *fan manual mode* |
+| `dpa.399.56` / `dpa.392.5x` | current temperature / setpoints | both are `dpt.valueTemp` |
+| `dpa.65533.51` / `dpa.65533.52` | battery level / low-battery alert | percentage vs flag |
+| `dpa.65534.51`…`.61` | CO2, particles, formaldehyde, CO, NO2, ozone, TVOC | all `dpt.airQuality`/`airQualityDensity` |
+| `dpa.901.51` | socket active power | read-only, W |
+| `dpa.812.51` | device status | `online`/`offline`, diagnostic |
+
+So classification needs no title heuristics at all: titles are user-defined KNX group
+object names (in the installer's own language, and mojibake-prone over other surfaces),
+i.e. display text. The integration keeps title matching only as a last-resort fallback
+for a function whose URN is unknown.
 
 ### Findings from the 2026-11 probing rounds
 

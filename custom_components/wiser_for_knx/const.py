@@ -63,28 +63,62 @@ SERVICE_CREATE_BACKUP = "create_backup"
 
 # Supported Home Assistant Platforms
 PLATFORMS: list[Platform] = [
+    Platform.BINARY_SENSOR,
     Platform.BUTTON,
+    Platform.CLIMATE,
+    Platform.COVER,
     Platform.LIGHT,
-    Platform.SWITCH,
+    Platform.LOCK,
+    Platform.NUMBER,
+    Platform.SELECT,
     Platform.SENSOR,
+    Platform.SWITCH,
 ]
 
-# KNX IoT 3rd Party Function URNs
+# KNX IoT 3rd Party function URNs measured on real controllers. Classification
+# matches on substrings of the whole URN (widgets.py), because vendor types such as
+# `urn:knx:fct.schneider.logicThermostat.type.thermostat` exist; these constants are
+# the inventory, not the matcher.
 FCT_SWITCHING_LIGHT = "urn:knx:fct.switchingLight"
 FCT_DIMMING = "urn:knx:fct.dimming"
+FCT_DIMMING_DALI = "urn:knx:fct.dimmingDali"
+FCT_COLOR_RGB = "urn:knx:fct.colorRGB"
+FCT_COLOR_RGBW = "urn:knx:fct.colorRGBW"
 FCT_SWITCHING_SOCKET = "urn:knx:fct.switchingSocket"
 FCT_SWITCHING = "urn:knx:fct.switching"
+FCT_SWITCHING_AC = "urn:knx:fct.switchingAC"
+FCT_SWITCHING_FAN = "urn:knx:fct.switchingFan"
 FCT_BLINDS = "urn:knx:fct.blindsVertical"
+FCT_BLINDS_HORIZONTAL = "urn:knx:fct.blindsHorizontal"
+FCT_SHADING_ROTARY = "urn:knx:fct.shadingRotary"
+FCT_BLINDS_PLAIN = "urn:knx:fct.blinds"
 FCT_TEMPERATURE_AIR_FAN = "urn:knx:fct.temperatureAirFan"
+FCT_TEMPERATURE_AIR = "urn:knx:fct.temperatureAir"
+FCT_TEMPERATURE_FLOOR = "urn:knx:fct.temperatureFloor"
 FCT_GENERIC_THERMOSTAT = "urn:knx:fct.genericThermostat"
 FCT_VDC_THERMOSTAT = "urn:knx:fct.VDCThermostat"
 FCT_ITRV = "urn:knx:fct.iTRV"
+FCT_SE8000 = "urn:knx:fct.se8000"
+FCT_AIRZONE = "urn:knx:fct.airzone"
+FCT_SMART_LOCK = "urn:knx:fct.smartLock"
+FCT_SCENE = "urn:knx:fct.scene"
 FCT_POWER = "urn:knx:fct.power"
 FCT_AIR_QUALITY = "urn:knx:fct.airQuality"
+FCT_GAS_SENSOR = "urn:knx:fct.gasSensor"
+FCT_PARTICLE_SENSOR = "urn:knx:fct.particleSensor"
 FCT_WEATHER = "urn:knx:fct.weather"
 FCT_GAUGE = "urn:knx:fct.gauge"
+FCT_INFO = "urn:knx:fct.info"
+FCT_CONTENT = "urn:knx:fct.content"
 FCT_WINDOW_DOOR = "urn:knx:fct.windowDoorSensor"
+FCT_WINDOOR_DOOR = "urn:knx:fct.schneider.windoor.type.door"
 FCT_MOVEMENT = "urn:knx:fct.movementDetector"
 FCT_ALARM = "urn:knx:fct.alarm"
+FCT_ALARM_FIRE = "urn:knx:fct.alarmFire"
+FCT_ALARM_GAS = "urn:knx:fct.alarmGas"
+FCT_ALARM_LIGHT = "urn:knx:fct.alarmLight"
+FCT_ALARM_TEMP = "urn:knx:fct.alarmTemp"
+FCT_ALARM_WIND = "urn:knx:fct.alarmWind"
 FCT_ALARM_DEW_POINT = "urn:knx:fct.alarmDewPoint"
 FCT_ALARM_WATER = "urn:knx:fct.alarmWater"
+FCT_ALARM_AUTOMATION = "urn:knx:fct.alarmAutomation"

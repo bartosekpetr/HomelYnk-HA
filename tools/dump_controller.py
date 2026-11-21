@@ -38,6 +38,15 @@ for _mod in (
     "homeassistant.helpers.entity_platform",
     "homeassistant.components",
     "homeassistant.components.binary_sensor",
+    "homeassistant.components.button",
+    "homeassistant.components.climate",
+    "homeassistant.components.cover",
+    "homeassistant.components.light",
+    "homeassistant.components.lock",
+    "homeassistant.components.number",
+    "homeassistant.components.select",
+    "homeassistant.components.sensor",
+    "homeassistant.components.switch",
     "aiohttp",
     "voluptuous",
     "homeassistant.helpers.event",
@@ -116,7 +125,9 @@ def anonymise(raw: dict) -> dict:
 
 
 def parse(raw: dict):
-    """Run the integration's own classification, without Home Assistant."""
+    """Run the integration's own classification and entity plan, without Home Assistant."""
+    from custom_components.wiser_for_knx.datapoints import DPA_ROLES, datapoint_role
+    from custom_components.wiser_for_knx.plan import plan_entities
     from custom_components.wiser_for_knx.widgets import (
         binary_device_class,
         classify_function,
@@ -137,6 +148,7 @@ def parse(raw: dict):
             "types": m.get("@type", []),
         }
 
+    functions: dict[str, dict] = {}
     summary = []
     for item in raw["functions"].get("data", []):
         a = item.get("attributes", {})
@@ -151,6 +163,7 @@ def parse(raw: dict):
                 k: d for k, d in dps.items() if str(d["parent_function_id"]) == fid
             },
         }
+        functions[fid] = func
         summary.append(
             {
                 "widget_id": func["widget_id"],
@@ -158,9 +171,26 @@ def parse(raw: dict):
                 "category": classify_function(func),
                 "binary_class": binary_device_class(func),
                 "has_urns": bool(func["types"]),
+                "datapoints": len(func["datapoints"]),
             }
         )
-    return summary
+
+    # What the integration would actually create, and - the useful part on a
+    # controller this project has not measured - every type tag with no role.
+    plan = plan_entities(functions)
+    unmapped = Counter(
+        type_
+        for dp in dps.values()
+        if datapoint_role(dp) is None
+        for type_ in dp["types"]
+        if type_.startswith("dic:dpa.")
+    )
+    plan_summary = {
+        "entities_per_platform": {k: len(v) for k, v in sorted(plan.items())},
+        "datapoints_without_a_role": dict(unmapped),
+        "known_archetypes": len(DPA_ROLES),
+    }
+    return summary, plan_summary
 
 
 def main() -> int:
@@ -184,7 +214,7 @@ def main() -> int:
         json.dumps(anonymise(raw), indent=2), encoding="utf-8"
     )
 
-    summary = parse(raw)
+    summary, plan_summary = parse(raw)
     print("\nClassification result (no names shown):")
     for (cat, wtype, cls), n in Counter(
         (s["category"], s["widget_type"], s["binary_class"]) for s in summary
@@ -196,6 +226,21 @@ def main() -> int:
         "Distinct schneider:widgetId values:",
         sorted({str(s["widget_id"]) for s in summary}),
     )
+
+    print("\nEntities the integration would create:")
+    for platform, count in plan_summary["entities_per_platform"].items():
+        print(f"  {count:3d} x {platform}")
+    unmapped = plan_summary["datapoints_without_a_role"]
+    if unmapped:
+        print(
+            f"\nType archetypes with no role ({plan_summary['known_archetypes']} known).\n"
+            "These datapoints still become sensors, but without a unit or a device\n"
+            "class - report them so the role map can be extended:"
+        )
+        for type_, count in sorted(unmapped.items()):
+            print(f"  {count:3d} x {type_}")
+    else:
+        print("\nEvery datapoint archetype on this controller has a role.")
     print("\nWrote wiser_dump_raw.json (PRIVATE) and wiser_dump_anon.json (shareable).")
     return 0
 

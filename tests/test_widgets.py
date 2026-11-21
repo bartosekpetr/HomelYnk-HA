@@ -69,8 +69,9 @@ def test_datapoint_role_inference():
     motion = _func(dp_titles=["Detection", "Illuminance"])
     assert classify_function(motion) == "binary_sensor"
 
+    # A scene is recalled by writing its number, so it is a button, not a skip
     scene = _func(dp_titles=["Scene"])
-    assert classify_function(scene) == "skip"
+    assert classify_function(scene) == "scene"
 
 
 def test_title_fallback_and_default():
@@ -167,3 +168,39 @@ def test_real_controller_function_urns():
     )
     assert classify_function(_func(types=["urn:knx:fct.gasSensor"])) == "sensor"
     assert classify_function(_func(types=["urn:knx:fct.info"])) == "sensor"
+
+
+def test_the_rest_of_the_measured_function_urns():
+    """Every `fct.*` the widget matrix recorded lands on a platform."""
+    expected = {
+        "urn:knx:fct.switchingAC": "switch",
+        "urn:knx:fct.switchingFan": "switch",
+        "urn:knx:fct.dimmingDali": "light",
+        "urn:knx:fct.colorRGB": "light",
+        "urn:knx:fct.colorRGBW": "light",
+        "urn:knx:fct.blindsHorizontal": "cover",
+        "urn:knx:fct.shadingRotary": "cover",
+        "urn:knx:fct.blinds": "cover",
+        "urn:knx:fct.temperatureFloor": "climate",
+        "urn:knx:fct.temperatureAir": "climate",
+        "urn:knx:fct.se8000": "climate",
+        "urn:knx:fct.airzone": "climate",
+        "urn:knx:fct.smartLock": "lock",
+        "urn:knx:fct.scene": "scene",
+        "urn:knx:fct.alarmFire": "binary_sensor",
+        "urn:knx:fct.alarmGas": "binary_sensor",
+        "urn:knx:fct.alarmWind": "binary_sensor",
+        "urn:knx:fct.alarmTemp": "binary_sensor",
+        "urn:knx:fct.schneider.windoor.type.door": "binary_sensor",
+        "urn:knx:fct.particleSensor": "sensor",
+        "urn:knx:fct.gauge": "sensor",
+        "urn:knx:fct.content": "skip",
+    }
+    for urn, category in expected.items():
+        assert classify_function(_func(types=[urn])) == category, urn
+
+
+def test_a_vendor_urn_is_matched_whole_not_by_segment():
+    """Splitting on "." reads this one as `thermostat`, or as `schneider`."""
+    urn = "urn:knx:fct.schneider.logicThermostat.type.thermostat"
+    assert classify_function(_func(types=[urn])) == "climate"

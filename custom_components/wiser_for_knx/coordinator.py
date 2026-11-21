@@ -28,6 +28,7 @@ from .const import (
     STATIC_REFRESH_INTERVAL,
     STATIC_RETRY_INTERVAL,
 )
+from .plan import plan_entities
 from .widgets import classify_function
 
 _LOGGER = logging.getLogger(__name__)
@@ -70,6 +71,10 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.client = client
         self.backup_manager = None
         self.health: WiserKnxHealthCoordinator | None = None
+        # {platform: [entity spec]} for the data of the last successful poll. Computed
+        # once per poll here rather than once per platform, because every platform
+        # listens for new entities (a function is published before its datapoints).
+        self.entity_plan: dict[str, list[dict[str, Any]]] = {}
         # Cache of the slow-changing layer: (locations, functions) as fetched, never mutated.
         self._static: tuple[dict[str, Any], dict[str, Any]] | None = None
         self._static_fetched_at = 0.0  # monotonic time of the last successful fetch
@@ -188,6 +193,7 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 ):
                     functions[p_func_id]["location_id"] = p_loc_id
 
+            self.entity_plan = plan_entities(functions)
             return {
                 "locations": locations,
                 "functions": functions,

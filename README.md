@@ -23,14 +23,27 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
     - **Services JSON API** (`/services/json/`)
 - **Seamless Credential Handling**:
   - Prompts for credentials (HTTP Basic Auth / API credentials) directly within the Home Assistant UI during configuration.
-- **Controller backups (main focus)**: Create password-protected backups of the controller's system and project configuration from Home Assistant, set up during the initial connection. Run them on demand (button or `wiser_for_knx.create_backup` service), on a schedule, and automatically before every Home Assistant backup, with automatic retention. See [Controller Backups](#-controller-backups).
-- **Light and switch import**: Only lights and switches are imported as devices, so you can control them from Home Assistant:
-  - **Lights** (`light`): on/off lights and dimmers.
-  - **Switches** (`switch`): relay switches, sockets and binary actuators.
-  - **Touch configuration requirement:** the controller only publishes a widget channel through its API when the channel has **both** a switch/value object **and** a status feedback object (they may use the same group address). Channels with only one of them are not imported, even if the Touch widget marks the status feedback as optional.
-  - Devices are classified from the KNX function type (and Touch widget metadata when available). Sensors, covers, thermostats, alarms and scenes are intentionally not imported.
-  - One Touch widget can become **several** devices: a multi-channel widget publishes one device per fully configured channel, named `<widget name> 1`, `<widget name> 2` and so on.
-  - A switch state is read from the status object and a command is sent to the control object. Home Assistant shows the new state right away; if no actuator reports the status object back, the state will revert on the next poll.
+- **Controller backups**: Create password-protected backups of the controller's system and project configuration from Home Assistant, set up during the initial connection. Run them on demand (button or `wiser_for_knx.create_backup` service), on a schedule, and automatically before every Home Assistant backup, with automatic retention. See [Controller Backups](#-controller-backups).
+- **Everything the controller exports becomes an entity** (since v0.8.0): nothing published through the local API is left invisible.
+
+  | Controller function | Home Assistant |
+  |---|---|
+  | `switchingLight`, `dimming`, `dimmingDali`, `colorRGB`, `colorRGBW`, `clc` | **light** — on/off, brightness, RGB and RGBW colour |
+  | `switching`, `switchingSocket`, `switchingAC`, `switchingFan` | **switch** |
+  | `blindsVertical`, `blindsHorizontal`, `shadingRotary`, `blinds` (SOMFY) | **cover** — position, slat tilt, up/down |
+  | `temperatureAirFan`, `iTRV`, `genericThermostat`, `VDCThermostat`, `temperatureFloor`, `se8000`, `airzone`, the Danfoss and Logic thermostats | **climate** — current temperature, setpoint, heating/cooling, operation mode as a preset, fan mode |
+  | `smartLock` | **lock** |
+  | `scene` | **button** per scene number |
+  | `alarm*`, `windowDoorSensor`, `movementDetector`, the door variant | **binary_sensor** with a matching device class |
+  | `airQuality`, `gasSensor`, `particleSensor`, `weather`, `gauge`, `info`, `power` | **sensor** |
+  | any other writable slot | **select** (it publishes a list of values) or **number** |
+
+  Alongside each device: its battery level and low-battery alert, its device-status (online/offline) flag, a socket's active power, a valve drive's heating demand, a shutter's "is moving" and last direction — each as its own entity, diagnostic ones marked as such.
+- **New devices appear without a restart**: the controller publishes a function a few seconds (and during heavy reconfiguration, minutes) before its datapoints, so entities are added as soon as they show up instead of only at startup.
+- **Controller monitoring**: firmware, uptime, CPU load (1/5/15 min), memory and storage from the management API, the time of the last backup, and how many functions and datapoints the controller is currently exporting.
+- **Touch configuration requirement:** the controller only publishes a widget channel through its API when the channel has **both** a control object **and** a status feedback object (they may use the same group address). Channels with only one of them never reach the API, even where the Touch widget marks the status feedback as optional — and a widget whose "Disable API Export" setting is on is absent entirely. The "Exported functions/datapoints" sensors are there to make that visible.
+- One Touch widget can become **several** devices: a multi-channel widget publishes one device per fully configured channel, named `<widget name> 1`, `<widget name> 2` and so on, and a widget such as a weather station or a thermostat publishes devices of *different* kinds at once.
+- A state is read from the status object and a command is sent to the control object (the controller collapses the two into one datapoint). Home Assistant shows the new state right away; if no actuator reports the status object back, the state reverts on the next poll.
 
 ---
 
@@ -150,8 +163,8 @@ All of the below are controller-side behaviours measured on a real unit; see
 
 1. The channel needs **both** its control object and its status feedback object in the Touch widget (they may share one group address). This is the usual cause.
 2. The widget setting **Disable API Export** hides a fully configured widget from the API, and nothing else gives it away. Note that the controller only honours it when the Touch UI stores it as a true/false value.
-3. After a configuration change, the controller publishes a device **before** its channels — normally within 15 seconds, but minutes while several widgets are being edited or a backup is being restored. Devices that appear without entities are shown as unavailable and recover by themselves; wait, then press **Rescan devices** on the controller device.
-4. A brand-new device needs the integration reloaded before its entities are created (**Rescan devices** picks up new names and rooms, not new devices).
+3. After a configuration change, the controller publishes a device **before** its channels — normally within 15 seconds, but minutes while several widgets are being edited or a backup is being restored. Devices that appear without entities are shown as unavailable and pick their entities up on a later poll by themselves; **Rescan devices** on the controller device re-reads the structure immediately instead of waiting for the hourly refresh.
+4. Watch the **Exported functions** and **Exported datapoints** sensors on the controller device. They say what the controller is actually publishing, which is the only in-band signal that something stopped being exported.
 
 **All entities became unavailable at once.** The integration keeps the last known configuration and retries; it never deletes entities because a poll failed. If it persists, check the log:
 
@@ -159,6 +172,12 @@ All of the below are controller-side behaviours measured on a real unit; see
 - Otherwise the controller is usually busy recomputing its configuration, and it recovers on its own.
 
 **A command does nothing, or the state jumps back.** The controller accepts a write and only then decides whether it understood it, so a command can be dropped without any error. The log names the datapoint and the values it does accept. A state that reverts on the next poll usually means nothing on the KNX bus reports the status object back — the command was sent, but only the status object can confirm it.
+
+**A cover has no stop button.** The controller publishes a shutter's stop object with the two values `increase` and `decrease`, and which of them stops the shutter has not been verified; sending the wrong one would move it. The object is offered as a *select* entity next to the cover instead, so you can use it from an automation once you know which value your actuator wants.
+
+**A shutter opens when you ask it to close.** KNX counts a shutter's position as how far it has travelled *down* (0 % = fully up), Home Assistant as how far it is *open*, so the integration inverts it. Actuators configured the other way round will read inverted; please open an issue with the group object's value at both end positions.
+
+**An SE 8000 thermostat reads about 18 °C low.** That function type publishes every temperature through a Fahrenheit-to-Celsius conversion while still labelling it `C`. The integration undoes it on the way in and redoes it on the way out. This has been measured on the published values but **not** verified end to end against an SE 8000 setpoint on a real bus — if yours reads or sets wrongly, please open an issue.
 
 ---
 

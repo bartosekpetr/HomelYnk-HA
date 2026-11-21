@@ -13,34 +13,16 @@ import json
 import re
 from typing import Any
 
-from .const import (
-    FCT_AIR_QUALITY,
-    FCT_ALARM,
-    FCT_ALARM_DEW_POINT,
-    FCT_ALARM_WATER,
-    FCT_BLINDS,
-    FCT_DIMMING,
-    FCT_GAUGE,
-    FCT_GENERIC_THERMOSTAT,
-    FCT_ITRV,
-    FCT_MOVEMENT,
-    FCT_POWER,
-    FCT_SWITCHING,
-    FCT_SWITCHING_LIGHT,
-    FCT_SWITCHING_SOCKET,
-    FCT_TEMPERATURE_AIR_FAN,
-    FCT_VDC_THERMOSTAT,
-    FCT_WEATHER,
-    FCT_WINDOW_DOOR,
-)
-
 CAT_LIGHT = "light"
 CAT_SWITCH = "switch"
 CAT_COVER = "cover"
 CAT_CLIMATE = "climate"
 CAT_SENSOR = "sensor"
 CAT_BINARY_SENSOR = "binary_sensor"
-# Widgets that have no sensible Home Assistant entity (scenes, media, web content)
+CAT_LOCK = "lock"
+CAT_SCENE = "scene"
+# Widgets that have no sensible Home Assistant entity (media, web content, the
+# controller's own automation-trigger virtuals)
 CAT_SKIP = "skip"
 
 # Touch widget id -> category
@@ -80,8 +62,25 @@ WIDGET_CATEGORIES: dict[str, str] = {
     "se-energy": CAT_SENSOR,
     "se-info-1": CAT_SENSOR,
     "se-info-2": CAT_SENSOR,
-    "se-scene": CAT_SKIP,
+    "se-particle-sensor": CAT_SENSOR,
+    "se-8000": CAT_CLIMATE,
+    "se-airzone": CAT_CLIMATE,
+    "se-danfoss-thermostat": CAT_CLIMATE,
+    "se-clc": CAT_LIGHT,
+    "se-dali-group-slider": CAT_LIGHT,
+    "se-rgb-dimmer": CAT_LIGHT,
+    "se-rgbw-dimmer": CAT_LIGHT,
+    "se-somfy-shades": CAT_COVER,
+    "se-somfy-garage": CAT_COVER,
+    "se-somfy-motor": CAT_SENSOR,
+    "se-smart-lock": CAT_LOCK,
+    "se-battery-alarm": CAT_BINARY_SENSOR,
+    "se-scene": CAT_SCENE,
     "se-sonos": CAT_SKIP,
+    "se-music": CAT_SKIP,
+    "se-camera": CAT_SKIP,
+    "se-notification": CAT_SKIP,
+    "se-url": CAT_SKIP,
     "se-content": CAT_SKIP,
     "chart_widget": CAT_SKIP,
     "custom_widget": CAT_SKIP,
@@ -177,56 +176,65 @@ def _titles(func: dict[str, Any]) -> list[str]:
 
 
 def _classify_by_urn(types: list[str]) -> str | None:
+    """Return the category for a function's KNX function URNs.
+
+    Matched on substrings of the **whole** URN, because vendor types exist:
+    `se-logic-thermostat` publishes `urn:knx:fct.schneider.logicThermostat.type.thermostat`,
+    which a parser that splits on `.` and takes a segment reads as `thermostat`
+    or as `schneider`. The order below is the priority order, so the narrower
+    type wins: `fct.switchingLight` is a light before it is a switch, and
+    `fct.colorRGBW` is a light although it carries no "light" at all.
+    """
     lowered = [t.lower() for t in types]
 
     if any("alarmautomation" in t for t in lowered):
         return CAT_SKIP
+    if any("fct.content" in t for t in lowered):
+        return CAT_SKIP
 
-    if any(t == FCT_DIMMING or "dimming" in t for t in types):
-        return CAT_LIGHT
-    if any(t == FCT_SWITCHING_LIGHT or "switchinglight" in t for t in lowered):
-        return CAT_LIGHT
     if any(
-        t in (FCT_SWITCHING_SOCKET, FCT_SWITCHING) or "switch" in t or "socket" in t
-        for t in types
+        "switchinglight" in t or "dimming" in t or "color" in t or "fct.clc" in t
+        for t in lowered
     ):
-        return CAT_SWITCH
-    if any(t == FCT_BLINDS or "blind" in t or "shutter" in t for t in types):
+        return CAT_LIGHT
+    if any("smartlock" in t or "doorcontrol" in t for t in lowered):
+        return CAT_LOCK
+    if any("fct.scene" in t for t in lowered):
+        return CAT_SCENE
+    if any(
+        "blind" in t or "shutter" in t or "shading" in t or "fct.blinds" in t
+        for t in lowered
+    ):
         return CAT_COVER
     if any(
-        t
-        in (
-            FCT_TEMPERATURE_AIR_FAN,
-            FCT_GENERIC_THERMOSTAT,
-            FCT_VDC_THERMOSTAT,
-            FCT_ITRV,
-        )
-        or "thermostat" in t
+        "thermostat" in t
         or "climate" in t
-        for t in types
+        or "temperature" in t
+        or "fct.se8000" in t
+        or "fct.airzone" in t
+        or "fct.itrv" in t
+        for t in lowered
     ):
         return CAT_CLIMATE
     if any(
-        t
-        in (
-            FCT_ALARM,
-            FCT_ALARM_DEW_POINT,
-            FCT_ALARM_WATER,
-            FCT_WINDOW_DOOR,
-            FCT_MOVEMENT,
-        )
-        or "alarm" in t
+        "alarm" in t
+        or "windoor" in t
         or "windowdoor" in t
         or "movement" in t
         or "motion" in t
-        for t in types
+        for t in lowered
     ):
         return CAT_BINARY_SENSOR
+    if any("switch" in t or "socket" in t or "fct.switching" in t for t in lowered):
+        return CAT_SWITCH
     if any(
-        t in (FCT_POWER, FCT_AIR_QUALITY, FCT_WEATHER, FCT_GAUGE)
-        or "sensor" in t
+        "sensor" in t
         or "power" in t
-        for t in types
+        or "airquality" in t
+        or "weather" in t
+        or "gauge" in t
+        or "fct.info" in t
+        for t in lowered
     ):
         return CAT_SENSOR
     return None
@@ -247,7 +255,7 @@ def _classify_by_datapoints(func: dict[str, Any]) -> str | None:
     ):
         return CAT_CLIMATE
     if "scene" in joined and "value" not in joined:
-        return CAT_SKIP
+        return CAT_SCENE
     if any(w in joined for w in ("alarm", "detection")) and "setpoint" not in joined:
         return CAT_BINARY_SENSOR
     return None

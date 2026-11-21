@@ -16,7 +16,6 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
-from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -48,27 +47,6 @@ from .entity import controller_device_info
 from .identity import stable_id_from_legacy
 
 _LOGGER = logging.getLogger(__name__)
-
-# Domains this integration used to provide; their entities are removed on setup
-_REMOVED_DOMAINS = {"binary_sensor", "cover", "climate"}
-# Unique-id suffixes of the sensors this integration still provides
-_SENSOR_SUFFIXES = (
-    "_last_backup",
-    "_firmware",
-    "_uptime",
-    "_load_1m",
-    "_memory_used_percent",
-    "_storage_used_percent",
-)
-
-
-def _remove_unsupported_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove entities created by earlier versions for no longer supported device types."""
-    registry = er.async_get(hass)
-    for ent in er.async_entries_for_config_entry(registry, entry.entry_id):
-        is_ours = ent.unique_id.endswith(_SENSOR_SUFFIXES)
-        if ent.domain in _REMOVED_DOMAINS or (ent.domain == "sensor" and not is_ours):
-            registry.async_remove(ent.entity_id)
 
 
 async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -253,10 +231,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         hass.services.async_register(DOMAIN, SERVICE_CREATE_BACKUP, _create_backup)
 
-    # Forward setup to all entity platforms
+    # Forward setup to all entity platforms. Every type the controller exports has a
+    # platform again since v0.8.0, so nothing is deleted from the entity registry here
+    # any more: an entity missing from one poll means the controller did not answer,
+    # not that the device is gone.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    _remove_unsupported_entities(hass, entry)
 
     pending = hass.data.get(DATA_INITIAL_BACKUP, set())
     # The config flow keys the request by the stable id, or by host when none is known yet
