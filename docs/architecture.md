@@ -1,6 +1,6 @@
 # Architecture
 
-Diagram current as of 353b3617b53958b63c48a94f9169a80bb7efe83b — 2026-11-21
+Diagram current as of 254a467e7b000230e5c9086fced1855f7c7ab022 — 2026-11-22
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
 a Wiser for KNX controller — config flow and options, the coordinators, the API client, the
