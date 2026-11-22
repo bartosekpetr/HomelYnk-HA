@@ -57,14 +57,10 @@ When the user enables the SSH add-on, an agent can inspect `/config` read-only (
 1. Update code, `README.md` and, if needed, `AGENTS.md`/docs.
 2. Bump `custom_components/wiser_for_knx/manifest.json` `version` (semver: features → minor, fixes → patch).
 3. Run the checks above, commit with the Co-authored-by trailer, then `git tag -a vX.Y.Z -m vX.Y.Z`.
-4. The user pushes from their own terminal (the agent cannot, because of the proxy and the browser sign-in):
-   ```
-   $git = "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe"
-   & $git -c http.proxy=http://127.0.0.1:9000 push
-   & $git -c http.proxy=http://127.0.0.1:9000 push origin vX.Y.Z
-   ```
-5. Publish the GitHub release for the tag (no `gh` CLI is installed): open `https://github.com/bartosekpetr/HomelYnk-HA/releases/new?tag=vX.Y.Z` in the browser tools (the user must be signed in), fill title and description, click **Publish release**. Use a normal release, not a draft or pre-release, otherwise HACS will not offer the update.
-6. In Home Assistant: HACS → Wiser for KNX → ⋮ → *Update information*, update, then **restart** Home Assistant.
+4. Push the branch **and** the tag: `git push && git push origin vX.Y.Z`. Either the user from their own terminal (`$git = "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe"; & $git -c http.proxy=http://127.0.0.1:9000 push`) or an agent whose runtime supplies managed GitHub credentials.
+5. **Publish the GitHub release for the tag. A pushed tag is not a release, and HACS reads releases.** Skipping this is why v0.8.0 was invisible in HACS for a day while both tags sat on GitHub. Either open `https://github.com/bartosekpetr/HomelYnk-HA/releases/new?tag=vX.Y.Z` in the browser tools (the user must be signed in), or — no `gh` CLI is installed — POST to `https://api.github.com/repos/bartosekpetr/HomelYnk-HA/releases` with a token. Use a **normal release**: a draft or a pre-release is hidden from HACS unless the user has turned on beta versions for this repository, and that is true of a `-beta.N` tag as well (v0.7.0-beta.1 and .2 were published as pre-releases and are therefore invisible by default).
+6. Verify before telling the user it is ready: `GET /repos/bartosekpetr/HomelYnk-HA/releases/latest` must answer the new tag with `draft=false` and `prerelease=false`, and the `manifest.json` version at that tag must match it without the leading `v`.
+7. In Home Assistant: HACS → Wiser for KNX → ⋮ → *Update information*, update, then **restart** Home Assistant.
 
 HACS only offers updates when the tag, the published release and `manifest.json` version agree. If HACS installed from the `main` branch (shows a commit hash instead of a version), use ⋮ → *Redownload* and pick a release version.
 
