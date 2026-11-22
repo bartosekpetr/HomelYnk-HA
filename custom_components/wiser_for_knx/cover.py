@@ -8,18 +8,26 @@ one comes from:
 |---|---|---|---|
 | position | `height-position-status` | `dpt.scaling`, writable | 0 % = open |
 | tilt | `slat-position-status` | `dpt.scaling`, writable | |
-| move | `movement-object` | `dpt.upDown`, enum `down,up` | |
-| stop | `stop-object` | `dpt.step`, enum `increase,decrease` | see below |
+| move | `movement-object` | `dpt.upDown`, enum `down,up` | `up` = raw 0 |
+| stop | `stop-object` | `dpt.step`, enum `increase,decrease` | `decrease` = raw 0 |
 | moving | `moving` | `dpt.startStop`, read-only | diagnostic |
 | direction | `last-direction` | `dpt.upDown`, read-only | diagnostic |
 
-**Stop is deliberately not wired up.** The stop object is a KNX DPT 1.010
-start/stop, but the controller publishes it as `dpt.step` with the enum
-`increase,decrease`, and a value that is not a member of that enum verbatim is
-accepted with HTTP 202 and then silently discarded. Which member means "stop"
-has not been measured, and guessing it would move a shutter rather than stop
-one, so the datapoint is exposed as a select next to the cover instead and
-`STOP` is not advertised.
+**Stop writes the member that puts a 0 on the bus**, which the enum above makes
+`decrease`. Measured on a live `fct.blindsVertical` on 2026-11-22: writing
+`increase` through the API put raw `01` on the stop group object and `decrease`
+put raw `00`, and Schneider's own Touch widgets — `se-shutter-vertical`,
+`se-shutter-horizontal` and `se-shutter-rotary` — all write literal `0` to that
+slot from their stop button. So raw 0 is what the vendor's stop does, and
+`decrease` is how this API spells raw 0. The member is looked up through
+`enum_member_for_bit` rather than hard-coded, because a member encodes to its
+DPT's bit and not to its position in the published list, and `STOP` is only
+advertised when that lookup succeeds.
+
+The write still goes to a datapoint whose value comes from the *status* object:
+control and status collapse into one datapoint, measured here too — writing the
+position datapoint drove the `height-position` group object while the value kept
+coming from `height-position-status`.
 """
 
 from __future__ import annotations
@@ -38,7 +46,9 @@ from .datapoints import (
     ROLE_MOVE,
     ROLE_MOVING,
     ROLE_POSITION,
+    ROLE_STOP,
     ROLE_TILT,
+    enum_member_for_bit,
     to_float,
 )
 from .entity import WiserKnxBaseEntity, async_setup_plan_entities
@@ -84,12 +94,29 @@ class WiserKnxCover(WiserKnxBaseEntity, CoverEntity):
     def _tilt_dp(self) -> dict[str, Any] | None:
         return self.role_datapoint(ROLE_TILT)
 
+    def _stop_write(self) -> tuple[dict[str, Any], str] | None:
+        """Return the stop datapoint and the member that stops it, or None.
+
+        None means this cover must not advertise `STOP`: either it has no
+        writable stop slot, or its enum holds no member whose bus value has been
+        measured. Writing a guess would move the shutter instead of stopping it.
+        """
+        dp = self.role_datapoint(ROLE_STOP, writable=True)
+        if dp is None:
+            return None
+        member = enum_member_for_bit(dp, 0)
+        if member is None:
+            return None
+        return dp, member
+
     @property
     def supported_features(self) -> CoverEntityFeature:
         """Return the features this cover's datapoints actually support."""
         features = CoverEntityFeature(0)
         if self.role_datapoint(ROLE_MOVE, writable=True):
             features |= CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE
+        if self._stop_write() is not None:
+            features |= CoverEntityFeature.STOP
         position = self._position_dp
         if position and position.get("writable"):
             features |= CoverEntityFeature.SET_POSITION
@@ -168,6 +195,14 @@ class WiserKnxCover(WiserKnxBaseEntity, CoverEntity):
         if await self.async_write_role(ROLE_MOVE, "down"):
             return
         await self._write_position(0)
+
+    async def async_stop_cover(self, **kwargs: Any) -> None:
+        """Stop the cover, the way the controller's own stop button does."""
+        stop = self._stop_write()
+        if stop is None:
+            return
+        dp, member = stop
+        await self.coordinator.async_write_datapoint(dp["id"], member)
 
     async def async_set_cover_position(self, **kwargs: Any) -> None:
         """Move the cover to a position."""

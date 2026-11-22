@@ -107,17 +107,50 @@ matches no member.
 is published with `enum: ["heat", "cool"]`; writing `heat` put raw `01` on the group object
 and `cool` put raw `00`, which is DPT 1.100 (0 = cool, 1 = heat) — i.e. the *reverse* of the
 published order, and the read side decodes the same mapping back. So the order of `enum` is
-presentation only and carries **no** information about the raw value behind a member. This is
-why the shutter stop object (`docs/architecture.md`, data path item 16) cannot be settled by
-reading its enum: `increase,decrease` says nothing about which member is DPT 1.010 *Stop*.
-What it does establish is that the encoder and the decoder agree, so the one measurement that
-would settle it is writing each member and watching the bus.
+presentation only and carries **no** information about the raw value behind a member. A second
+function confirmed it on 2026-11-22: on a live `fct.blindsVertical`, `dpt.step` published
+`["increase", "decrease"]` encodes `increase` → raw `01` and `decrease` → raw `00`, and
+`dpt.upDown` published `["down", "up"]` encodes `up` → raw `00` and `down` → raw `01`. Both are
+their DPT's bit, neither is the list index.
+
+**The shutter stop member is `decrease`** — settled by that write, plus a second witness that
+needs no bus at all: all three of the vendor's own Touch shutter widgets
+(`se-shutter-vertical`, `se-shutter-horizontal`, `se-shutter-rotary`) call
+`this.model.write("stop-object", 0)` from their stop button, so raw 0 is what a stop *is* on
+this controller, and `decrease` is how the API spells raw 0. Note which way round that is: the
+earlier inference from a single inbound reading had named `increase`, which is the member that
+*moves* a shutter. Reading a vendor front-end is cheap, and it was available the whole time.
+
+**What a one-bit enum member puts on the bus**, measured (the HA integration keeps this table in
+`datapoints.py::ENUM_BIT_BY_TOKEN`):
+
+| type | published enum | raw 0 | raw 1 | when |
+|---|---|---|---|---|
+| `dpt.step` | `increase,decrease` | `decrease` | `increase` | 2026-11-22 |
+| `dpt.upDown` | `down,up` | `up` | `down` | 2026-11-22 |
+| `dpt.startStop` | `start,stop` | `stop` | `start` | 2026-11-22 |
+| `dpt.deviceStatus` | `offline,online` | `online` | `offline` | 2026-11-22 |
+| `dpt.heatCool` | `heat,cool` | `cool` | `heat` | 2026-11-21 |
+
+The device-status row is the one worth a second look: an object reads **`online` while its bit
+is clear**, which is the opposite of the reading a KNX error object invites.
 
 **Control and status collapse into one datapoint.** The datapoint's value is the status
 object; a write to it drives the control object. So optimistic *and* pessimistic state are
 both wrong in general: where an actuator bridges control → status the value follows shortly,
 and where nothing does (a lone KNX output) it never follows. The integration therefore
-updates its local state optimistically and never does write-then-verify-else-error.
+updates its local state optimistically and never does write-then-verify-else-error. Watched
+directly on 2026-11-22: a full-slot `se-shutter-vertical` with ten group objects exports **seven**
+datapoints, the height and slat control slots having collapsed into their status datapoints, and
+writing the height datapoint drove the `height-position` object while its value kept coming from
+`height-position-status`.
+
+**`height-invert` exports nothing and changes nothing the API publishes.** The tenth slot of that
+widget produced no datapoint at all; driving its group object from the bus left the published
+height identical (30 stayed 30, not 70); and nothing in the Touch front-end bundles reads it. So
+the API always publishes the raw KNX height, and a client that converts to Home Assistant's
+"how far open" convention is not undermined by an installation that wires that slot. Which way a
+real actuator travels is still untested — the convention itself is all that is settled here.
 
 **Values are in engineering units.** A datapoint's `value` is converted from the raw group
 object value per type and must be passed through unchanged: a `dpt.scaling` raw 128 is
@@ -155,8 +188,18 @@ So "the API answers and my entities still work" does **not** mean the export is 
 widget that is correctly configured can be missing for a reason that is invisible from the
 API: no 5xx, no empty collection, nothing for the integration to detect. Nothing restarts an
 app daemon that dies either — the vendor's launcher writes a pid and refuses to double-start,
-and the minutely `apps` cron only runs the store's `cron` scripts — so the freeze lasts until
-someone starts it or the controller reboots. If an installation reports that a widget added in
+the minutely `apps` cron only runs the store's `cron` scripts, and `/usr/share/procmon` (the
+one thing on the box that does restart a dead process, minutely) carries entries for the SCADA
+core, nginx, redis and OpenVPN — **not** for any app daemon. So the freeze lasts until someone
+starts it.
+
+Restarting it is the fix and was confirmed on 2026-11-22: `daemon.start("apit3")` through the
+vendor's own `apps.daemon` launcher, and both widgets that had been waiting appeared in the very
+next poll (`/functions` 3 → 5, `/datapoints` 7 → 15), with the export tracking a teardown back
+down again afterwards. **A reboot is not a reliable fix**: on that unit `/var/run` held pidfiles
+for `touch3`, `cloud-connector` and `cc-watchdog` dated to the last boot and none for `apit3` at
+all, i.e. the daemon had not run since that boot, and every widget-export measurement in the
+skillset predates it. The freeze began at a boot rather than being cured by one. If an installation reports that a widget added in
 Touch never shows up in Home Assistant while everything else keeps working, this is the first
 thing to check, and it is checkable only on the controller (`ps | grep apit3`). The
 integration's "Rescan devices" button cannot help: it re-reads the same cache.

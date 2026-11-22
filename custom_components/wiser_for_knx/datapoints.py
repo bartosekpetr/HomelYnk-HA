@@ -234,12 +234,46 @@ BINARY_ROLES = frozenset(
 
 # The value tokens those roles report. `online`/`offline` is the device-status enum,
 # `start`/`stop` the detection and movement enums, `open`/`close` the window contact.
+#
+# The two shutter diagnostics were measured from the bus inwards on 2026-11-22:
+# raw 1 on a `dic:dpa.812.51` publishes `offline` and raw 0 `online`, raw 1 on a
+# `dic:dpa.801.90` publishes `start` and raw 0 `stop`. So a device-status object
+# reads "online" while its bit is **clear**, which is the opposite of the reading
+# a KNX error object invites.
 BINARY_TRUE_TOKENS = frozenset(
     {"true", "on", "open", "opened", "start", "detected", "online", "active"}
 )
 BINARY_FALSE_TOKENS = frozenset(
     {"false", "off", "close", "closed", "stop", "offline", "inactive"}
 )
+
+# What a one-bit enum member puts on the bus.
+#
+# A member encodes **by name, to its own DPT's bit** - never by its position in
+# the published `enum` list. Measured with the controller's bus monitor on
+# 2026-11-21 (`dpt.heatCool`, published `["heat","cool"]`: `heat` -> raw 01,
+# `cool` -> raw 00, i.e. DPT 1.100's order, the reverse of the list) and again on
+# 2026-11-22 on a live shutter function (`dpt.step`, published
+# `["increase","decrease"]`: `increase` -> raw 01, `decrease` -> raw 00;
+# `dpt.upDown`: `up` -> raw 00, `down` -> raw 01). Decoding agrees with
+# encoding in both directions.
+#
+# This table is therefore the only safe way to ask "which member sets this bit",
+# and it is why the shutter stop member could not be guessed from the enum.
+ENUM_BIT_BY_TOKEN: dict[str, int] = {
+    "decrease": 0,  # dpt.step
+    "increase": 1,
+    "up": 0,  # dpt.upDown
+    "down": 1,
+    "stop": 0,  # dpt.startStop
+    "start": 1,
+    "online": 0,  # dpt.deviceStatus
+    "offline": 1,
+    "cool": 0,  # dpt.heatCool
+    "heat": 1,
+    "off": 0,  # dpt.switch
+    "on": 1,
+}
 
 # fct.se8000 publishes every dpt.valueTemp through an F->C conversion while still
 # labelling the unit "C": a bus value of 32 is published as 0, 100 as 37.77. Measured
@@ -288,6 +322,22 @@ def is_binary(role: str | None, dp: dict[str, Any]) -> bool:
     # Unknown role: fall back to the published enum, which the controller fills in
     members = {str(m).strip().casefold() for m in (dp.get("enum") or [])}
     return bool(members) and members <= (BINARY_TRUE_TOKENS | BINARY_FALSE_TOKENS)
+
+
+def enum_member_for_bit(dp: dict[str, Any], bit: int) -> str | None:
+    """Return the member of this datapoint's enum that puts `bit` on the bus.
+
+    `None` when the datapoint has no enum, or when no member of it has been
+    measured - a caller that cannot name the member it needs must not write a
+    guess, because the controller answers 202 to anything well-formed and then
+    discards what is not a member verbatim.
+    """
+    for member in dp.get("enum") or []:
+        if not isinstance(member, str):
+            continue
+        if ENUM_BIT_BY_TOKEN.get(member.strip().casefold()) == bit:
+            return member
+    return None
 
 
 def binary_state(value: Any) -> bool | None:

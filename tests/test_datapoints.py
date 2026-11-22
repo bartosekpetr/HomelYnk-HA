@@ -32,6 +32,7 @@ from custom_components.wiser_for_knx.datapoints import (
     ROLE_TILT,
     binary_state,
     datapoint_role,
+    enum_member_for_bit,
     is_binary,
     temperature_in,
     temperature_out,
@@ -166,3 +167,32 @@ def test_every_other_temperature_function_passes_through():
     for types in (["urn:knx:fct.temperatureAirFan"], ["urn:knx:fct.iTRV"], [], None):
         assert temperature_in(types, ROLE_TEMPERATURE, "21.5") == 21.5
         assert temperature_out(types, 21.5) == 21.5
+
+
+@pytest.mark.parametrize(
+    ("enum", "bit", "member"),
+    [
+        # dpt.step, measured on a live shutter 2026-11-22: increase -> raw 01
+        (["increase", "decrease"], 0, "decrease"),
+        (["increase", "decrease"], 1, "increase"),
+        # dpt.upDown, same run: up -> raw 00, and the vendor's own up button
+        # writes 0 as well
+        (["down", "up"], 0, "up"),
+        (["down", "up"], 1, "down"),
+        # dpt.heatCool, measured 2026-11-21: published ["heat","cool"], but heat
+        # is raw 01 - DPT 1.100's order, the reverse of the list
+        (["heat", "cool"], 0, "cool"),
+        (["heat", "cool"], 1, "heat"),
+        (["start", "stop"], 0, "stop"),
+        (["offline", "online"], 0, "online"),
+        # nothing measured, so nothing returned - the caller must not guess
+        (["schritt-auf", "schritt-ab"], 0, None),
+        ([], 0, None),
+    ],
+)
+def test_a_member_encodes_to_its_dpt_bit_not_its_list_position(enum, bit, member):
+    assert enum_member_for_bit({"enum": enum}, bit) == member
+
+
+def test_a_non_string_member_is_skipped_rather_than_matched():
+    assert enum_member_for_bit({"enum": [0, 1]}, 0) is None

@@ -132,12 +132,54 @@ def test_a_cover_without_a_movement_object_opens_by_position():
     assert _written(cover)[0].args == ("pos", 0)
 
 
-def test_stop_is_not_advertised_because_its_enum_was_never_measured():
+def test_stop_writes_the_member_that_puts_a_zero_on_the_bus():
+    """`decrease` is raw 0 on a `dpt.step`, and raw 0 is what stop means.
+
+    Measured 2026-11-22: through the API `increase` put raw `01` on the stop
+    group object and `decrease` raw `00`, and all three of the vendor's own
+    shutter widgets write literal `0` to that slot from their stop button.
+    """
     stop = _dp(
         "stop",
         "dic:dpa.801.62",
         "urn:knx:dpt.step",
         True,
+        enum=["increase", "decrease"],
+    )
+    cover = _composite(WiserKnxCover, ["urn:knx:fct.blindsVertical"], POSITION, stop)
+    assert cover.supported_features & CoverEntityFeature.STOP
+
+    asyncio.run(cover.async_stop_cover())
+    assert _written(cover)[0].args == ("stop", "decrease")
+
+
+def test_stop_is_not_advertised_when_no_member_of_the_enum_was_measured():
+    """An unmeasured spelling is left alone rather than guessed at.
+
+    The controller answers 202 to any well-formed write and then discards a
+    value that is not a member verbatim, and on a shutter the cost of guessing
+    is movement rather than a no-op.
+    """
+    stop = _dp(
+        "stop",
+        "dic:dpa.801.62",
+        "urn:knx:dpt.step",
+        True,
+        enum=["schritt-auf", "schritt-ab"],
+    )
+    cover = _composite(WiserKnxCover, ["urn:knx:fct.blindsVertical"], POSITION, stop)
+    assert not cover.supported_features & CoverEntityFeature.STOP
+
+    asyncio.run(cover.async_stop_cover())
+    assert _written(cover) == []
+
+
+def test_a_read_only_stop_slot_is_not_a_stop_button():
+    stop = _dp(
+        "stop",
+        "dic:dpa.801.62",
+        "urn:knx:dpt.step",
+        False,
         enum=["increase", "decrease"],
     )
     cover = _composite(WiserKnxCover, ["urn:knx:fct.blindsVertical"], POSITION, stop)

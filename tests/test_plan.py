@@ -84,11 +84,12 @@ def test_a_dimmer_consumes_both_of_its_datapoints():
 
 
 def test_a_full_shutter_keeps_its_extra_slots_as_their_own_entities():
-    """7 datapoints: position and slats drive the cover, the rest stand alone.
+    """7 datapoints, which is what a full `se-shutter-vertical` really exports.
 
-    The stop object is deliberately a select: the controller publishes it as
-    `dpt.step` with the enum `increase,decrease`, and which member means stop
-    has not been measured.
+    Measured live on 2026-11-22: the two control slots collapse into their
+    status datapoints, so the cover takes position, slats, movement and stop,
+    and what is left is the three diagnostics. `height-invert` exports nothing
+    at all.
     """
     plan = plan_entities(
         _func(
@@ -140,7 +141,9 @@ def test_a_full_shutter_keeps_its_extra_slots_as_their_own_entities():
         )
     )
     assert _keys(plan, PLATFORM_COVER) == ["f1"]
-    assert _keys(plan, PLATFORM_SELECT) == ["stop"]
+    # The stop object is the cover's STOP now that its bus value is measured,
+    # so it is no longer offered as a select of increase/decrease.
+    assert plan.get(PLATFORM_SELECT) is None
     assert _keys(plan, PLATFORM_BINARY_SENSOR) == ["moving", "status"]
     # "last direction" is down/up, which is not an on/off state - it is an enum
     assert _keys(plan, PLATFORM_SENSOR) == ["dir"]

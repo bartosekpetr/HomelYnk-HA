@@ -10,8 +10,10 @@ role map and the entity plan, all ten entity platforms, the backup manager, and 
 
 Everything here is derived from the code, `manifest.json`, `hacs.json`, the CI workflow and the
 measurement write-ups already in this repo and in
-[wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset). No live controller was
-touched to produce it. Confidence per edge is in [§8](#8-confidence).
+[wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset). Confidence per edge is
+in [§8](#8-confidence), and the rows marked **measured 2026-11-22** come from a live
+`fct.blindsVertical` built on scratch group addresses — the one session that did touch a
+controller.
 
 The single most important thing on this page: **the integration owns almost nothing of what a
 user sees.** Which devices exist, which channels are exported, what a value means and whether a
@@ -251,7 +253,7 @@ flowchart TB
       ENT["entity.py<br/>base and datapoint entity,<br/>controller device info,<br/>async_setup_plan_entities"]
       LI["light.py<br/>on/off, brightness, RGB, RGBW"]
       SW["switch.py<br/>function and datapoint switches"]
-      CV["cover.py<br/>position inverted, tilt, up/down"]
+      CV["cover.py<br/>position inverted, tilt, up/down, stop"]
       CL["climate.py<br/>setpoint, HVAC mode, preset, fan"]
       LK["lock.py"]
       BS["binary_sensor.py<br/>role to device class"]
@@ -388,7 +390,7 @@ flowchart TB
 | `entity.py` | naming, area suggestion, `via_device` nesting, the "no datapoints ⇒ unavailable" rule, role lookup for composites, the datapoint entity base (unique id = `datapoint.id`), and `async_setup_plan_entities` — the one place entities are added, on setup *and* on every later poll, and the one place that never removes any | state semantics; what the plan says | entities would lose device grouping and availability honesty, and a device added in Touch would need a reload |
 | `light.py` | on/off, brightness as a percentage, RGB from the hex triplet and RGBW from the per-channel scaling slots | whether the write takes effect | dimmers and colour lights disappear |
 | `switch.py` | the function-level switch, plus a switch for a writable on/off datapoint no composite took (a thermostat's fan manual mode) | — | the most-used entities disappear |
-| `cover.py` | the KNX→HA position inversion, tilt, open/close via the movement object, and the deliberate refusal to advertise `STOP` | what the stop object's enum members mean (unmeasured) | shutters become a position number and a select |
+| `cover.py` | the KNX→HA position inversion, tilt, open/close via the movement object, and `STOP` as the enum member that puts a 0 on the bus | whether the actuator's stop object agrees with the controller's own stop button | shutters become a position number and a select |
 | `climate.py` | the current/setpoint split, operation mode as a **preset** (not an HVAC mode), heat/cool + the `dpa.417.72` thermostat switch as the HVAC mode, fan modes, and the `fct.se8000` conversion on both directions | the thermostat obeying (202 is not confirmation) | thermostats become a temperature sensor and a setpoint number |
 | `lock.py` | lock/unlock, and the fact that `ajar` is neither | — | smart locks become a select and a sensor |
 | `binary_sensor.py` | the role → device-class map, the alarm/contact classes that can only come from the function, and the published-token → on/off mapping | which datapoints are binary (that is `datapoints.py`) | alarms and contacts become string sensors |
@@ -413,7 +415,6 @@ flowchart TB
   is exposed, as one button per published scene number, because that is a datapoint write.
 - **No colour temperature, no transitions, no effects.** Colour is RGB and RGBW only; the
   controller publishes nothing else for a light.
-- **No cover stop.** Deliberate — see the data path, item 16.
 - **No history backfill from the controller.** `vis/graph` is the only series endpoint, it reads
   the `objectlog` table rather than the trend configuration, and object ids are recycled: a
   freshly created object came back carrying 100+ rows left by previous occupants of its id.
@@ -570,17 +571,24 @@ flowchart TB
     redoing it on a setpoint write has never been seen on a bus. Both are called out in the README
     with a request to report a mismatch.
 
-16. **The cover stop object is deliberately not wired up.** The stop slot is a KNX DPT 1.010
-    start/stop, but the controller publishes it as `dpt.step` with the enum `increase,decrease`,
-    and a value outside that enum is accepted with 202 and discarded. Which member stops a shutter
-    has not been measured, and guessing would *move* one, so `STOP` is not advertised and the
-    datapoint is exposed as a select instead. Two things measured since **narrow** it without
-    closing it: a bus write of raw 1 to a stop object made the API publish `increase` (skillset
-    widget sweep, 2026-11-11), and the encoder maps a member by name to its DPT-defined bit rather
-    than by list position, in both directions (2026-11-21, `docs/controller-api.md`). Together
-    those imply `increase` → raw 1 → DPT 1.010 *Stop*, but the write direction on a `dpt.step`
-    datapoint has still never been put on a bus, and an inference is not a measurement when the
-    failure mode is a shutter that moves instead of stopping.
+16. **The cover stop object writes the member that puts a 0 on the bus** — `decrease`, for the
+    `increase,decrease` enum this controller publishes on a `dpt.step`. Measured end to end on a
+    live `fct.blindsVertical` on 2026-11-22: through the API `increase` put raw `01` on the stop
+    group object and `decrease` put raw `00`, and Schneider's own Touch widgets
+    (`se-shutter-vertical`, `se-shutter-horizontal`, `se-shutter-rotary`) all write literal `0`
+    there from their stop button. Two independent lines, one from the bus and one from the
+    vendor's own front-end, and they agree.
+
+    The earlier **inference was wrong, in the direction that would have mattered**: it read
+    `increase` → raw 1 → DPT 1.010 *Stop*, when DPT 1.010 has 0 = Stop, so the member it named
+    was the one that moves a shutter. What saved it was refusing to ship an inference — item 15's
+    rule applied to the one case where being wrong costs movement rather than a no-op.
+
+    The member is resolved through `datapoints.enum_member_for_bit`, from a table of measured
+    token → bit pairs, rather than hard-coded: a member encodes to its own DPT's bit and not to
+    its position in the published list, so the only safe way to ask for "the member that sets this
+    bit" is a lookup that can *fail*. When it fails, `STOP` is not advertised — an enum this
+    project has never measured still gets no guess.
 
 ### The backup path (the project's actual main feature)
 
@@ -662,7 +670,7 @@ Asymmetries on it:
 | `backup_utils.py` | a directory, a host, kinds, keep; a downloaded blob | validity bool, filenames, file lists, deletions, ZIP entry count (or `ValueError`) | pure + `pathlib` + `zipfile` |
 | `entity.py` | `coordinator.data`, `coordinator.entity_plan`, `client.base_url` | entity name, `device_info` (model = the KNX function type), `suggested_area`, availability, extra attributes, and the `async_add_entities` calls for every platform | HA entity API |
 | `light.py` | the function's datapoints | `is_on`, `brightness`, `color_mode`, `rgb_color`, `rgbw_color`; writes `on`/`off`, a percentage or a hex triplet | coordinator |
-| `cover.py` | the function's datapoints | position and tilt (inverted), `is_closed`/`is_opening`/`is_closing`, supported features; writes a position or `up`/`down` | coordinator |
+| `cover.py` | the function's datapoints | position and tilt (inverted), `is_closed`/`is_opening`/`is_closing`, supported features; writes a position, `up`/`down`, or the stop member | coordinator |
 | `climate.py` | the function's datapoints | current and target temperature, HVAC mode, preset, fan mode, min/max from the datapoint; writes a Celsius setpoint, `heat`/`cool`, `on`/`off`, an enum member | coordinator |
 | `lock.py` | the function's datapoints | `is_locked`, `is_jammed`, `is_open`; writes `lock`/`unlock` | coordinator |
 | `binary_sensor.py` | one datapoint | `is_on`, device class | coordinator |
@@ -744,7 +752,8 @@ controller.
 | Entities left over after the v0.8.0 upgrade, permanently unavailable | **not a fault** | function-keyed sensors from before v0.5.0 are not re-adopted: sensors are now keyed on `datapoint.id`. Delete them in the UI |
 | A reading, control or flag the controller exports has no entity | the plan | `plan.py` assigns a platform to every datapoint; only the `dpt.uuid` automation-trigger virtuals and whole `skip` categories (media, camera, Content) are dropped on purpose. Anything else missing is a gap in `datapoint_platform` |
 | A thermostat's fan turned off when the thermostat was turned off | the integration, if roles ever merge again | the two are different archetypes (`dpa.417.72` the thermostat, `dpa.417.70` the fan manual mode) and carry different roles for this reason |
-| A cover's position reads inverted | the actuator's convention vs KNX's | `cover.py` assumes the KNX convention (0 % = fully up) and inverts for HA. Not verified against hardware |
+| A cover's position reads inverted | the actuator's convention vs KNX's | `cover.py` assumes the KNX convention (0 % = fully up) and inverts for HA. Not verified against hardware; the widget's own `height-invert` slot is measured not to affect what the API publishes |
+| A cover's stop button moves the shutter | the actuator's stop object | the integration sends the value the controller's own stop button sends (raw 0 = `decrease`, measured). An actuator wired to stop on 1 would move instead |
 | An SE 8000 thermostat reads ~18 °C low or sets ~32 off | `fct.se8000`'s own F→C conversion | undone on the read path and redone on the write path. The read side follows a measurement; the write side has never been seen on a bus |
 | No backup files appear, no error anywhere | no valid backup password | an empty or rule-violating password makes `configured` False and backups are skipped silently by design. Set it in **Configure** |
 | Backup fails with HTTP 400 | the password rule | ≥ 8 chars with an upper-case letter, a lower-case letter and a digit, enforced by the controller |
@@ -774,7 +783,8 @@ controller.
 | Which `fct.*` a widget publishes, and with which datapoint types | **measured** | the same sweep; the mapping is the summary table in `widget-matrix.md` |
 | `fct.se8000` publishes `(bus − 32) × 5/9` and labels it `C` | **measured** on the read path | three bus values, cross-checked against a control `se-thermostat` on the same group address. **Undoing it on a write is inferred**, never observed |
 | A KNX height position is 0 % when fully up, so HA's position is its inverse | **asserted** | the KNX convention for DPT 5.001 and Home Assistant's own KNX integration default. Not measured here, and not reported by the API |
-| Which member of the stop object's `increase,decrease` enum stops a shutter | **inferred, not measured** | raw 1 inbound published `increase` (2026-11-11), and a member encodes to its DPT bit rather than its list index (2026-11-21) ⇒ `increase` is DPT 1.010 Stop. The write has never been seen on a bus, so `STOP` stays unadvertised and the datapoint stays a select |
+| The stop object's `decrease` is what a stop sends | **measured** ×2 | the write put raw `00` on the group object (2026-11-22, bus monitor), and all three vendor Touch shutter widgets write literal `0` to that slot. What an *actuator* then does with a 0 is its own affair — untested, and the README asks for a report |
+| The Touch `height-invert` slot does not change what the API publishes | **measured** | the slot exports no datapoint at all, driving it from the bus left the published height unchanged, and nothing in the Touch front-end bundles reads it (2026-11-22). So HA's fixed inversion is not undermined by an installation that wires it |
 | An enum member encodes by name, not by list position | **measured** | `dpt.heatCool` published `["heat","cool"]`; `heat` → raw `01`, `cool` → raw `00`, decoding the same way back |
 | The function/datapoint graph is a cache the `apit3` daemon regenerates | **measured** | with that daemon stopped: 200s, live values, and no new widget exported at any wait |
 | `dpt.R-G-B` carries a six-digit hex triplet | **observed-only** | the `3BHEX` unit and the measured values match it; a non-triplet value is reported as no colour rather than parsed |

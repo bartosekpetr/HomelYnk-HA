@@ -38,6 +38,7 @@ from .datapoints import (
     ROLE_POSITION,
     ROLE_SCENE,
     ROLE_SETPOINT,
+    ROLE_STOP,
     ROLE_SWITCH,
     ROLE_SWITCH_FEEDBACK,
     ROLE_TEMPERATURE,
@@ -84,7 +85,7 @@ COMPOSITE_ROLES: dict[str, frozenset[str]] = {
         }
     ),
     CAT_SWITCH: frozenset({ROLE_SWITCH, ROLE_SWITCH_FEEDBACK}),
-    CAT_COVER: frozenset({ROLE_POSITION, ROLE_TILT, ROLE_MOVE}),
+    CAT_COVER: frozenset({ROLE_POSITION, ROLE_TILT, ROLE_MOVE, ROLE_STOP}),
     CAT_CLIMATE: frozenset(
         {
             ROLE_TEMPERATURE,
