@@ -123,6 +123,10 @@ The `hacs_repository` link above takes the same parameters and works on both sid
 
 The controller's certificate is verified by default. Controllers usually use a self-signed certificate, so when verification fails during setup the integration shows the certificate's SHA-256 fingerprint. Compare it with the controller, then confirm; only that exact certificate is trusted from then on. If the certificate later changes, Home Assistant asks you to re-confirm instead of connecting.
 
+**If Home Assistant asks about the certificate on an installation that was already working**, it is telling you that the controller now presents a *different* certificate than the one you confirmed — a reinstalled or regenerated controller certificate is the usual reason. Home Assistant shows a **"Controller certificate changed"** card with the new fingerprint and the one it trusted before: compare the new fingerprint with the controller, then submit the card. That keeps the integration entry, and with it your entity ids, names and history.
+
+**Do not delete the integration and add it again** to get past that card. Entity ids are tied to the config entry, so a fresh entry creates a fresh set of entities — the old history is dropped and names can come back with a `_2` suffix. Removing and re-adding is only worth it if you want a clean slate.
+
 Under **Configure** you can enable *Skip certificate verification (insecure)*. While it is on, Home Assistant shows a repair notice. Entries created by earlier versions keep their existing (unverified) setting after the upgrade and show that notice until you turn the option off.
 
 The connection uses HTTPS by default. *Use plain HTTP instead of HTTPS (insecure)* is available during setup and under **Configure** for controllers that cannot serve HTTPS; while it is on, the controller password and the backup password are sent unencrypted and Home Assistant shows a repair notice.
