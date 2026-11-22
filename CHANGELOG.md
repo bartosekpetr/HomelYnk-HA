@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## 0.8.0-beta.1 - 2026-11-21
+## 0.8.0 - 2026-11-22
 
 Everything the controller exports now becomes an entity. Built on the measured
 per-widget evidence in [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset)
@@ -39,9 +39,25 @@ per-widget evidence in [wiser-knx-skillset](https://github.com/bartosekpetr/wise
   only in-band signal that a widget stopped being exported.
 - An SE 8000 thermostat's temperatures are corrected: that function type reports every temperature
   through a Fahrenheit-to-Celsius conversion while still labelling it Celsius.
-- Covers deliberately have **no stop button**: the controller publishes a shutter's stop object
-  with the values `increase` and `decrease`, and which one stops the shutter has not been
-  verified, so it is offered as a separate entity rather than guessed at. See the README.
+- **Covers have a stop button**, and which value stops a shutter was measured rather than
+  inferred: the controller publishes a shutter's stop object with the values `increase` and
+  `decrease`, and `decrease` is the one that puts a 0 on the group object — the same value the
+  controller's own Touch shutter widgets send from their stop button. The stop object is no longer
+  a separate entity sitting next to the cover. What is still unverified is the *actuator*: an
+  actuator wired to stop on 1 would move instead, and the README asks for a report. A stop object
+  whose value list this project has never measured gets no stop button rather than a guess.
+- Two more corrections that came out of the same session on a real controller: a shutter widget's
+  *invert height* setting cannot change which way Home Assistant reads a position (it exports no
+  channel at all, and the controller's own front end ignores it), and a device-status channel
+  reports `online` for a clear bit, which is the opposite of what a KNX error object invites you
+  to assume — the integration already had it that way, and it is now measured.
+- The README now explains two things that were previously undiagnosable from Home Assistant: what
+  to do when the integration asks you to confirm a changed controller certificate (submit the
+  *Controller certificate changed* card — deleting and re-adding the entry also works but gives
+  you a fresh set of entities and loses their history), and what it means when a newly configured
+  Touch widget never appears (the controller's export daemon can stop regenerating the export
+  while the API keeps answering normally; the two export-count sensors are the only in-band
+  signal).
 
 Also in this release, from the earlier round of measurements on a real controller (the findings that matter here are summarised in [docs/controller-api.md](docs/controller-api.md)):
 
