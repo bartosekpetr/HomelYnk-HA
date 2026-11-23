@@ -18,7 +18,20 @@ Spec: `schneider_knx_iot_3rdparty_v1_openapi.json` (repo root). JSON:API style.
 | GET | `/datapoints` | datapoints; `attributes` has `title`, `unit`, `value`, `valueType`, `writable`, `enum`, `schneider:parentFunction`; `meta["@type"]` holds datapoint types |
 | PUT | `/datapoints/values` | write: `{"data":[{"id":..,"type":"datapoint","attributes":{"value":"on"}}]}`; answers **202 Accepted** |
 
-**Header requirement:** `Accept: application/vnd.api+json, application/json`. Plain `application/json` returns **HTTP 406**. The client (`api.py::_get_headers`) sends the right header.
+**Header requirement:** this surface serves `application/vnd.api+json`, and `Accept` must match it **verbatim or by wildcard**. The client (`api.py::_get_headers`) sends `application/vnd.api+json, application/json`. The full matrix was measured on 2026-11-22, after a probe that politely asked for `application/json` got 406 everywhere and nearly hid an unrelated 404 underneath it:
+
+| `Accept` | result |
+|---|---|
+| `*/*` | 200 |
+| `application/vnd.api+json` | 200 |
+| `application/*` | 200 |
+| `application/json, */*` | 200 |
+| `application/json;q=1.0, */*;q=0.8` | 200 |
+| `application/json` | **406** |
+| `text/*` | **406** |
+| *absent* | **406** |
+
+So the rule is not "json is wrong" but "match the served type or wildcard it — and never omit the header". The two `/.well-known/knx` probes in `api.py` send `application/json, */*`, which is in the 200 column only because of the `*/*`: removing it would turn every answer on this surface into a 406, and a 406 is easy to misread as "wrong endpoint". `async_check_tls` deliberately sends no `Accept` at all and ignores the status code — it only needs the TLS handshake — so a 406 there is harmless by design.
 
 ### Findings from real dumps (`tools/dump_controller.py`)
 
@@ -72,9 +85,11 @@ for a function whose URN is unknown.
 ### Findings from the 2026-11 probing rounds
 
 Measured across every control surface of one controller and written up in
-[bartosekpetr/wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset)
-(`skills/wiser-knx/homelynk-ha.md` is the Home Assistant chapter, `widget-matrix.md` the
-per-widget evidence). Only what matters for this integration is repeated here.
+`bartosekpetr/wiser-knx-skillset` — a **private** repository (confirmed 2026-11-22), so the name
+is a pointer for the maintainer and not a link a reader can follow (`skills/wiser-knx/homelynk-ha.md`
+is the Home Assistant chapter, `widget-matrix.md` the per-widget evidence, `push.md` the push
+protocol). Everything this integration relies on is restated here in full, so nothing below depends
+on reading it.
 
 **Reads can fail without the installation being empty.** This build intermittently answers
 **500** on `/datapoints` and `/functions`, most often while it recomputes its API export
@@ -188,10 +203,15 @@ So "the API answers and my entities still work" does **not** mean the export is 
 widget that is correctly configured can be missing for a reason that is invisible from the
 API: no 5xx, no empty collection, nothing for the integration to detect. Nothing restarts an
 app daemon that dies either — the vendor's launcher writes a pid and refuses to double-start,
-the minutely `apps` cron only runs the store's `cron` scripts, and `/usr/share/procmon` (the
-one thing on the box that does restart a dead process, minutely) carries entries for the SCADA
-core, nginx, redis and OpenVPN — **not** for any app daemon. So the freeze lasts until someone
-starts it.
+the minutely `apps` cron only runs the store's `cron` scripts, and `/usr/share/procmon` (the one
+thing on the box that does restart a dead process, minutely) does not watch app daemons. That last
+point was re-measured on 2026-11-22 by the stronger method: the `apit3` daemon was killed outright
+and **nothing restarted it within 120 s**. (The two rounds disagree about *why* — an entry list
+covering the SCADA core, nginx, redis and OpenVPN in the first reading, an empty config directory
+in the second — and only the conclusion is load-bearing here. Separately worth knowing: procmon
+does `reboot` the unit if the 1-minute load average reaches 18, which is the one thing the
+`Load (1 min)` health sensor can warn about.) `apit3` was also at the store's latest build
+(`20260909`), so no app update fixes this. The freeze lasts until someone starts the daemon.
 
 Restarting it is the fix and was confirmed on 2026-11-22: `daemon.start("apit3")` through the
 vendor's own `apps.daemon` launcher, and both widgets that had been waiting appeared in the very
@@ -276,7 +296,135 @@ Two related hardening findings from the same round, and where this integration s
 - *A `Content-Disposition` filename joined onto a local directory is a path-traversal sink.* Not applicable here by construction: file names are generated from host, kind and timestamp (`backup_utils.backup_filename`) and the host is passed through `safe_host`, so the controller's response headers never choose a path.
 - *A project backup is a copy of the whole installation and should not be created at the process umask.* Stored files are `chmod 0600` in `backup.py` before the atomic rename.
 
-Not used on purpose: restore endpoints, admin password change, hostname/network changes, KNX/BACnet patches, log clearing. The BACnet settings include a `Password` field.
+**This surface is far wider than the four calls above, and that is a safety fact, not trivia.**
+Measured 2026-11-22 (the skillset's twelve-app store survey): the controller's `management` app
+registers `location /api/management/v1` as its own nginx route and exposes **39 operations**,
+all answering 200 with the ordinary admin credential — `flashsys/system/hostname` (GET *and*
+PATCH), `flashsys/Network/KNCConnection` (PATCH — the KNX connection itself),
+`flashsys/Network/BACnet` (PATCH), `POST flashsys/system/AdminAccess`,
+`POST scada-main/general/restore` and `POST flashsys/system/RestoreConfiguration`,
+`GET`/**`DELETE`** on `scada-main/Logs` and `scada-main/ErrorLogs`, the `project_backups` family
+(list/get/post/patch/**restore**/delete), `ets_project_backups`, Modbus profiles, `users`, the
+OpenVPN/WireGuard settings and the cloud pairing and remote-access grants. The route is
+**HTTPS-only** (it answers 406 over plain HTTP) and answers 403 to any method outside
+`GET|POST|PUT|DELETE|PATCH`.
+
+So the older note here — "no path to these exists on the management API this integration uses"
+— was **wrong**, and the correction matters in one direction only: *restore is callable, and it
+is one HTTP POST away from the credentials this integration already holds.* Keeping it unexposed
+is now an explicit choice rather than a limitation. Not used on purpose: restore (both kinds),
+admin password change, hostname/network changes, KNX/BACnet patches, log clearing. Reboot and
+shutdown are genuinely absent from this surface.
+
+Values on this surface that must stay out of entities, attributes and any future diagnostics: the
+BACnet settings include a `Password` field, and `flashsys/Network/Interfaces` hands out the unit's
+**MAC** on a plain read. The same round also reports a **service tag** in `custom/deviceInfo` —
+which this repo's own live read of that endpoint on 2026-11-21 did *not* see (it returned exactly
+`architecture`, `fwVersion`, `hwVersion`, `lastUpdate`, `uptime`; see above). The two readings are
+unreconciled and it does not matter which is right for how the code should behave:
+`health.parse_health` whitelists the fields it keeps (firmware, hardware, architecture, uptime,
+load, memory, storage) rather than passing the payload through, so an identity field appearing in a
+future firmware is published by nothing. **Keep that whitelist shape** — never forward a management
+payload wholesale into an attribute dict.
+
+## 3. Push – `POST /subscribe` (measured, not yet used)
+
+The integration polls `GET /datapoints` every 10 s. The 3rd Party API advertises two ways not
+to, and on 2026-11-22 both were measured end to end on the reference unit (firmware 3.1.0,
+`apit3` 1.36.3). Nothing in `custom_components/` opens either one today — this section exists so
+that when SMA-112 is built it is built against measurements instead of the spec.
+
+| | endpoint | what the spec says | what this firmware does |
+|---|---|---|---|
+| WS | `GET /messaging/ws` | subscriptions **and** read/write over a WebSocket whose `Sec-WebSocket-Protocol` is "mandatory, fixed" — value never stated | 🔴 **does not exist** |
+| CB | `POST /subscribe` | HTTP callback, body fully specified, `url` **HTTPS only** | ✅ implemented, and plain `http://` works |
+
+### 3a. The WebSocket is not on this firmware
+
+Every form of the request answers **404**: plain GET, upgrade with and without
+`v12.stomp` / `v11.stomp` / `v10.stomp` / `stomp`, with and without a credential, and the
+`/messaging`, `/ws`, `/messaging/ws/websocket`, `/messaging/ws/info` and SockJS path shapes. The
+controls are what make that mean something — in the same run, over the same socket, with the same
+request builder: `/node` without upgrade headers → **200**, `/node` *with* the upgrade headers
+still attached → **200**, `/node` without a credential → **401**, and an invented
+`messaging/nope-control` path → **404**. So the route is indistinguishable from a path that was
+made up, and the 404 comes back even unauthenticated, i.e. it is a routing answer and not an auth
+answer. On the box: nginx registers no `messaging/*` location, the on-box OpenAPI path set (33
+definitions) has no such entry, the string `messaging` appears nowhere in `/data/apps` or `/www`
+(so the Touch front-end does not speak it either), there is no Lua WebSocket *server* library, and
+`apit3` is at the store's latest build. The only trace is a `Sec-WebSocket-Protocol` parameter stub
+with **no enum and no default** — the controller's own definition does not state the value the
+published spec calls fixed.
+
+**Do not design against this endpoint, and do not write a frame encoder for it.** One good
+consequence: the "push might require OAuth against the Schneider cloud" risk never arises, because
+the channel that does exist takes the same HTTP Basic credential as every other surface. Re-run the
+probe after a firmware update rather than assuming it stays absent.
+
+### 3b. The callback channel, and the five things that change code
+
+```http
+POST /api/w4knx/3rdparty/v1/subscribe
+Content-Type: application/vnd.api+json     Accept: application/vnd.api+json
+
+{"data": [{"id": "<datapoint-uuid>", "type": "datapoint"}, ...],
+ "meta": {"url": "http(s)://<ha-host>:<port>/<path>",
+          "secret": "<shared secret>", "type": "subscribe.datapoint"}}
+```
+
+200 with the subscription object; all three `meta` fields are required.
+`DELETE /subscriptions/{id}` → 204, and the delete was proven by re-driving the bus and recording
+silence rather than by the status code. `GET /subscriptions/{id}/datapoints` lists what is
+subscribed.
+
+1. **A plain `http://` callback is accepted and honoured**, against the spec's HTTPS-only `url`:
+   accepted, listed with the scheme intact, and really delivered (proven after first proving the
+   controller could reach the listener at all, so a missing callback would have been unambiguous).
+   That makes push reachable for an ordinary Home Assistant install with no TLS endpoint. The price
+   is that every value and the signature cross the LAN in clear text — prefer HTTPS, know HTTP
+   works.
+2. **The frame** is JSON:API, one datapoint per POST, and
+   `attributes.value` is **always a string** (`"on"`, `"100"`, `"cool"`) in the **same engineering
+   units as `GET /datapoints`** — `dpt.scaling` as a percent (raw 255 → `"100"`, 51 → `"20"`), enum
+   members by name, matching `attributes.enum` exactly. So `datapoints.py` decodes both paths
+   unchanged. `attributes.timestamp` is real ISO-8601 UTC. `relationships` carries the subscription
+   link, so one listener can demultiplex several. The subscription silently includes the two
+   automation-trigger virtuals (`11111111-…`) — filter inbound by datapoint id, as the poll path
+   already does.
+3. 🪤 **`X-Callback-Signature`, and the secret is never echoed.** The `secret` is an HMAC key, not a
+   token to compare:
+   `msg = "POST " + url.path + " HTTP/1.1" + url.authority + Date + str(len(body)) + body`, header
+   `= base64(lowercase_hex(HMAC-SHA256(secret, msg)))`. It is **base64 of the ASCII hex, not of the
+   digest** (the controller's `hmacsha256` returns a 64-char hex string and base64-encodes those
+   characters), so a verifier that base64-decodes and compares 32 raw bytes never matches. And the
+   `Date` header is **local time labelled `GMT`** (an hour off the payload's own UTC timestamp on a
+   CET unit) — it is inside the signed string, so feed it back **verbatim**; parsing or re-rendering
+   it breaks the HMAC, and it is not a usable clock. The construction was read off the daemon's
+   stripped LuaJIT bytecode and then verified against live frames.
+4. 🔴 **A callback is a state notification, not an event.** Latency is sub-second (0.08–0.99 s
+   across 8 samples) against the 10 s poll, and a sustained 1 Hz change delivered 40 of ~40. But a
+   burst of 8 transitions 0.4 s apart delivered only **4** callbacks, each carrying the value as of
+   delivery: changes closer than ~0.8 s to one datapoint are coalesced to the latest value and the
+   intermediate states are never sent. Treat every callback as "this is the current value of this
+   datapoint". Never count edges or reconstruct a sequence — and note that casual testing at 1 Hz
+   will not show you this.
+5. 🔴 **Push fails silent and does not self-heal, so the poll stays.** The REST surface is
+   nginx-embedded Lua while delivery is a real daemon (`/lib/apps/daemon.lua apit3 …`), i.e. two
+   different things. Kill the daemon with a live subscription and: the subscription record survives
+   and keeps being listed, the REST API keeps answering 200, delivery stops completely, and nothing
+   restarts it (120 s; procmon does not watch app daemons — §1 above). Before and after the restart
+   delivery was 7 of 7, so the record itself is durable. **Nothing in the API distinguishes
+   "subscribed and quiet" from "subscribed and dead"**, so a liveness timeout that falls back to
+   reading `/datapoints` is mandatory, and `scan_interval` should become a slow backstop rather than
+   being removed. Re-assert the subscription on startup and after any gap — behaviour across a
+   controller **reboot** was deliberately not measured (the reference unit is a live house), so
+   depend on no prediction either way.
+
+The alternative that already works, and why it is still the wrong choice here: the localbus
+WebSocket at `/apps/localbus.lp` upgrades (101) over pinned TLS with Basic auth and carries live
+bus traffic — but it speaks group addresses and raw datatype codes, not datapoint UUIDs and
+engineering units, and it is not gated by the Touch export. Right tool for measurement, wrong tool
+for an entity graph that must stay aligned with `/datapoints`.
 
 ## Privacy rules for real data
 

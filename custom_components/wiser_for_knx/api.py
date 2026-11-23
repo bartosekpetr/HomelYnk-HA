@@ -145,7 +145,15 @@ class WiserKnxClient:
         return None
 
     def _get_headers(self) -> dict[str, str]:
-        """Headers required by KNX IoT 3rd Party API."""
+        """Headers required by KNX IoT 3rd Party API.
+
+        The surface serves `application/vnd.api+json` and matches `Accept`
+        strictly: measured 2026-11-22, `application/json` alone, `text/*` and an
+        absent header all answer HTTP 406, while the served type, `application/*`
+        and anything containing `*/*` answer 200. So the type below has to stay
+        in the header (or be replaced by a wildcard) — never trim it to plain
+        JSON, and never drop the header.
+        """
         return {
             "Accept": "application/vnd.api+json, application/json",
             "Content-Type": "application/vnd.api+json",
@@ -180,6 +188,8 @@ class WiserKnxClient:
         try:
             async with session.get(
                 well_known_url,
+                # the `*/*` is what makes this acceptable to the controller;
+                # `application/json` on its own answers 406 (see _get_headers)
                 headers={"Accept": "application/json, */*"},
                 timeout=timeout,
             ) as resp:
@@ -212,7 +222,7 @@ class WiserKnxClient:
         try:
             async with session.get(
                 f"{self.base_url}/.well-known/knx",
-                headers={"Accept": "application/json, */*"},
+                headers={"Accept": "application/json, */*"},  # keep the `*/*`
                 timeout=aiohttp.ClientTimeout(total=5),
             ) as resp:
                 if resp.status != 200:
@@ -229,6 +239,9 @@ class WiserKnxClient:
         """Unauthenticated TLS check; raise WiserKnxCertificateError if the cert is untrusted.
 
         Sends no credentials, so it is safe to call before the certificate is trusted.
+        It also sends no `Accept` header and ignores the status code: only the
+        handshake matters here, so the 406 that an absent `Accept` earns on this
+        surface is harmless.
         """
         session = await self._get_session()
         url = f"{self.base_url}/.well-known/knx"

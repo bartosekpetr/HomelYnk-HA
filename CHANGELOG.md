@@ -4,9 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## 0.8.0 - 2026-11-22
 
-Everything the controller exports now becomes an entity. Built on the measured
-per-widget evidence in [wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset)
-(47 widget types, each built three ways and read back over the local API).
+Everything the controller exports now becomes an entity. Built on measured
+per-widget evidence — 47 widget types, each built three ways and read back over
+the local API — recorded in a private research repository, so the findings this
+project relies on are written up in `docs/controller-api.md` instead of linked.
 
 - **Covers, thermostats, locks, binary sensors and readings are back, and there is more of them.**
   Shutters and blinds become `cover` entities with position and slat tilt; thermostats become
