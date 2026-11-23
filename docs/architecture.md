@@ -1,6 +1,10 @@
 # Architecture
 
-Diagram current as of b7e4cbb — 2026-11-22 (cover stop measured; §8 rows dated 2026-11-22)
+Diagram current as of e075ae1 — 2026-11-23. Revised for four things: the push protocol is
+measured and `GET /messaging/ws` **does not exist** on this firmware; the `Accept` rule and the
+width of the management route are measured; the HACS release gate and the certificate-changed card
+are observed rather than inferred; and three leftovers of the entity sweep v0.8.0 deleted are
+corrected.
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
 a Wiser for KNX controller — config flow and options, the coordinators, the API client, the
@@ -9,11 +13,16 @@ role map and the entity plan, all ten entity platforms, the backup manager, and 
 (`schneider_knx_iot_3rdparty_v1_openapi.json`, [docs/controller-api.md](controller-api.md)).
 
 Everything here is derived from the code, `manifest.json`, `hacs.json`, the CI workflow and the
-measurement write-ups already in this repo and in
-[wiser-knx-skillset](https://github.com/bartosekpetr/wiser-knx-skillset). Confidence per edge is
-in [§8](#8-confidence), and the rows marked **measured 2026-11-22** come from a live
-`fct.blindsVertical` built on scratch group addresses — the one session that did touch a
-controller.
+measurement write-ups already in this repo and in `bartosekpetr/wiser-knx-skillset` — **a private
+repository**, so a measurement quoted here has to stand on its own description; there is no link
+a reader outside the project could follow. Confidence per edge is in [§8](#8-confidence), and the
+rows marked **measured 2026-11-22** come from a live `fct.blindsVertical` built on scratch group
+addresses — the one session that did touch a controller. The rows added on **2026-11-23** are
+second-hand by construction: the HACS release gate and the certificate-changed card are *reports*
+of things that happened on the owner's own installation (`AGENTS.md` §6, `15fbab6`, `16feae7`),
+and the push protocol and the `Accept` matrix were measured by the skillset's rigs and are
+summarised here from `AGENTS.md` and [docs/controller-api.md](controller-api.md). Nothing in this
+revision touched a controller, a Home Assistant or the network.
 
 The single most important thing on this page: **the integration owns almost nothing of what a
 user sees.** Which devices exist, which channels are exported, what a value means and whether a
@@ -30,9 +39,9 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
   | GitHub releases      |  | GitHub Actions             |  | Wiser Touch widget config |
   | + HACS               |  | .github/workflows/         |  | slots / channels /        |
   | distribution channel |  | validate.yml  (CI only)    |  | disable_export            |
-  |                      |  | ruff==0.17.3, pytest,      |  | the real source of truth, |
-  |                      |  | compileall, hassfest@master|  | NOT readable over either  |
-  |                      |  | hacs/action@main, nightly  |  | API                       |
+  | reads a PUBLISHED    |  | ruff==0.17.3, pytest,      |  | the real source of truth, |
+  | release; a tag alone |  | compileall, hassfest@master|  | NOT readable over either  |
+  | is invisible (1)     |  | hacs/action@main, nightly  |  | API                       |
   +----------+-----------+  +----------------------------+  +------------+--------------+
         (1)  | installs custom_components/wiser_for_knx               (2)| gates export
              v                                                           |
@@ -50,7 +59,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |  |     config_flow.py      |  (6) creates    |        __init__.py        |         |
  |  | user|zeroconf|dhcp ->   |---------------->| migrate v1->v2->v3 (7)    |         |
  |  | credentials ->          |  entry, then    | setup / unload / remove   |         |
- |  | [trust_certificate] ->  |  (8) reload     | leftover-entity sweep (12)|         |
+ |  | [trust_certificate] ->  |  (8) reload     | deletes no entity (12)    |         |
  |  | backup -> entry         |<----------------| create_backup svc (14,15) |         |
  |  | options flow, reauth (9)|                 | initial-backup task       |         |
  |  +-----------+-------------+                 +--+------+--------+--------+         |
@@ -122,17 +131,22 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |    GET /datapoints           (43)  THE WHOLE ENTITY GRAPH, one request;             |
  |                                    meta["@type"] also = dic:dpa.* -> widget slot    |
  |    PUT /datapoints/values    (44)  answers 202 Accepted before deciding             |
- |    NOT USED (53): POST /subscribe, GET /messaging/ws, /subscriptions/*,             |
+ |    NOT USED (53): POST /subscribe + DELETE /subscriptions/{id} - MEASURED to work,  |
+ |                   never opened by this integration                                  |
+ |                   GET /messaging/ws - 404 on this firmware: the path DOES NOT       |
+ |                   EXIST, however fully the spec describes it                        |
  |                   /sites, /node, /devices, /installations, bulk + project writes,   |
  |                   PUT /functions|locations/attributes                               |
  |                                                                                     |
  |  Management API  /api/management/v1                                                 |
  |    GET  /custom/deviceInfo                  (45)  firmware, hardware, arch, uptime  |
- |                                                   (NO MAC/serial on fw 3.1.0)      |
+ |                                                   (NO MAC/serial on fw 3.1.0)       |
  |    GET  /flashsys/Status/SystemStatus       (46)  uptime, load, memory, partitions  |
  |    POST /flashsys/system/backupConfiguration(47)  system ZIP; body IS the ZIP       |
  |    POST /scada-main/general/backup          (48)  project ZIP; size drifts          |
- |    NOT USED on purpose: restore, admin password, hostname, KNX/BACnet patches, logs |
+ |    NOT USED on purpose: restore x2, admin password, hostname, KNX/BACnet, logs.     |
+ |      A POLICY choice, not a missing endpoint: this route is 39 operations wide      |
+ |      and every one answers 200 to the credentials the integration already holds     |
  |                                                                                     |
  |                         ^                                ^                          |
  |                         |                           (50) | export engine, gated by  |
@@ -155,7 +169,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 
 | # | From | To | Direction / carries |
 |---|---|---|---|
-| 1 | GitHub release + HACS | user's `custom_components/` | one-way, out-of-band install/update |
+| 1 | GitHub release + HACS | user's `custom_components/` | one-way, out-of-band install/update, **gated on a published release**: HACS reads releases, so a pushed tag with no release — or a draft, or a pre-release — reaches nobody |
 | 2 | Touch widget config | controller export engine | one-way; decides what the API publishes |
 | 3 | HA zeroconf | `config_flow.async_step_zeroconf` | push; IP, hostname, port, properties |
 | 4 | HA dhcp | `config_flow.async_step_dhcp` | push; IP + MAC (OUI-matched) |
@@ -207,7 +221,8 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 50 | Touch config | 3rd Party API | gated and asynchronous; see §4 |
 | 51 | datapoint write | CONTROL group object → KNX bus → actuator | write direction |
 | 52 | STATUS group object | datapoint value | read direction; may never follow 51 |
-| 53 | push API (`/subscribe`, `/messaging/ws`, `/subscriptions/*`) | — | **exists in the contract, never opened** |
+| 53 | push API: `POST /subscribe`, `DELETE /subscriptions/{id}` | — | **never opened by this integration**, but no longer unmeasured: the skillset's rig drove both end to end on 2026-11-22 and callbacks were delivered. See §8 |
+| 53a | `GET /messaging/ws` | — | **not an edge at all**: 404 on this firmware in every form tried. The spec describes it; the controller does not serve it |
 
 ---
 
@@ -216,7 +231,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 ```mermaid
 flowchart TB
   subgraph EXT["External - changes with nobody in this repo acting"]
-    HACS["GitHub releases plus HACS<br/>distribution channel"]
+    HACS["GitHub releases plus HACS<br/>distribution channel<br/>reads a PUBLISHED release;<br/>a tag alone is invisible"]
     CI["GitHub Actions validate.yml<br/>ruff 0.17.3 pinned, pytest,<br/>compileall, hassfest at master,<br/>hacs action at main, nightly cron"]
   end
 
@@ -238,7 +253,7 @@ flowchart TB
 
     subgraph INT["custom_components/wiser_for_knx"]
       CF["config_flow.py<br/>user, zeroconf, dhcp,<br/>credentials, trust_certificate,<br/>backup, options, reauth"]
-      INIT["__init__.py<br/>migrate, setup, unload,<br/>leftover sweep, service,<br/>initial-backup task"]
+      INIT["__init__.py<br/>migrate, setup, unload,<br/>service, deletes no entity,<br/>initial-backup task"]
       COORD["coordinator.py<br/>datapoints every 10 s<br/>static cache 1 h / retry 5 min / die 3 h<br/>enum-verbatim writes<br/>optimistic local state"]
       HCOORD["health coordinator<br/>5 min, best effort"]
       BM["backup.py<br/>manager, lock, schedule, prune<br/>ZIP gate then temp, 0600, rename<br/>plus HA pre/post backup hooks"]
@@ -267,7 +282,8 @@ flowchart TB
   subgraph CTRL["Wiser for KNX controller - not ours"]
     WK["GET /.well-known/knx<br/>unauthenticated, returns api.base"]
     TP["3rd Party API /api/w4knx/3rdparty/v1<br/>GET /locations, /functions, /datapoints<br/>PUT /datapoints/values"]
-    PUSH["Push API: POST /subscribe,<br/>GET /messaging/ws, /subscriptions<br/>NEVER OPENED by this integration"]
+    PUSH["Push API: POST /subscribe,<br/>DELETE /subscriptions/id<br/>measured to work, NEVER OPENED here"]
+    WS["GET /messaging/ws<br/>in the spec, 404 on this firmware:<br/>NOT SERVED at all"]
     MG["Management API /api/management/v1<br/>GET /custom/deviceInfo<br/>GET /flashsys/Status/SystemStatus<br/>POST backupConfiguration<br/>POST scada-main/general/backup<br/>backup body IS the archive, no envelope"]
     EXPORT["Export engine<br/>gated and asynchronous"]
     TOUCH["Touch widget configuration<br/>slots, channels, disable_export<br/>unreadable over both APIs"]
@@ -297,7 +313,6 @@ flowchart TB
   INIT --> BM
   INIT --> IDM
   INIT -->|"controller device"| DR
-  INIT -->|"deletes leftovers"| ER
   INIT -->|"insecure_tls, insecure_http"| IR
   INIT -->|"registers create_backup"| SR
   SR -->|"fans out to every entry"| BM
@@ -343,7 +358,7 @@ flowchart TB
   HCOORD --> SE
   BM --> SE
   BM --> BT
-  LI -->|"entities and devices"| ER
+  LI -->|"entities and devices;<br/>ADD ONLY, nothing in the<br/>integration removes one"| ER
   SW --> ER
   CV --> ER
   CL --> ER
@@ -359,6 +374,7 @@ flowchart TB
   APIC -->|"health and backups"| MG
   TLSM -->|"raw TLS handshake, no credentials"| CTRL
   APIC -.->|"never called"| PUSH
+  APIC -.->|"never called, and<br/>there is nothing to call"| WS
 
   TOUCH --> EXPORT
   EXPORT -->|"functions first, datapoints 15 s plus later"| TP
@@ -403,12 +419,26 @@ flowchart TB
 
 - **No restore.** Backups are downloaded only. Recovery is a manual upload in the controller's own
   web UI with the backup password. There is no code path that can restore, and deliberately so.
-- **No controller administration.** Admin password change, hostname/network changes, KNX and BACnet
-  patches and log clearing all exist on the management API and are never called. (The BACnet
-  settings contain a `Password` field — redact it if diagnostics are ever added.)
-- **No push / subscription path.** `manifest.json` declares `iot_class: local_polling`. The spec
-  offers `POST /subscribe`, `GET /messaging/ws` and the whole `/subscriptions/*` family; none is
-  opened. All freshness comes from polling.
+- **No controller administration, and this is now a policy choice rather than a limitation.**
+  Measured 2026-11-22: the `management` route is **39 operations** wide and every one answers 200
+  to the credentials this entry already holds — including `POST scada-main/general/restore`,
+  `flashsys/system/RestoreConfiguration`, `PATCH flashsys/system/hostname`, `PATCH
+  flashsys/Network/KNCConnection` (the KNX connection itself), `POST flashsys/system/AdminAccess`
+  and `DELETE scada-main/ErrorLogs`. This integration calls **four** of them (health ×2, backup
+  ×2). An earlier revision of this page and of `docs/controller-api.md` said no path to the others
+  existed; that was wrong, and it was wrong in the direction that matters — a one-tap restore in
+  Home Assistant is one POST away. Reboot and shutdown really are absent from this surface. Two
+  values must stay out of entities, attributes and any future diagnostics: the BACnet settings'
+  `Password` field, and the **service tag** `custom/deviceInfo` returns (`health.parse_health`
+  publishes neither; see [§8](#8-confidence) for what is still unresolved about that field).
+- **No push / subscription path.** `manifest.json` declares `iot_class: local_polling`; all
+  freshness comes from polling, and nothing here opens a subscription. What changed on 2026-11-22
+  is only the *knowledge*: the protocol was measured outside this repo, and the two routes are not
+  the pair the spec implies. `POST /subscribe` + `DELETE /subscriptions/{id}` work and deliver;
+  `GET /messaging/ws` **answers 404 on this firmware in every form tried** — it is specified and
+  not served. So the websocket is not "the harder option", it is not an option. The measured
+  protocol and its four traps are in [§8](#8-confidence); adopting any of it is SMA-112 and has not
+  started.
 - **No scenes, schedulers or automations from the controller's own engine.** They exist on the
   LogicMachine side (Configurator `scenes`, `schedulers`, the automation plugin) and the 3rd-party
   API does not expose them — all of those paths answer 404 locally. A KNX `fct.scene` *function*
@@ -634,7 +664,7 @@ Asymmetries on it:
   covered by a test; this interleaving is read from the code (confirmed by running `_store`
   against a temp directory, see [§8](#8-confidence)).
 - **`0600` is not retroactive.** The mode is applied to each file as it is written, so backups
-  taken by v0.7.0-beta.2 or earlier (the change is still in `Unreleased`) keep whatever the
+  taken by v0.7.0-beta.2 or earlier (the mode arrived in v0.8.0) keep whatever the
   process umask gave them. Nothing re-modes the directory, so a `wiser_backups/` folder will hold
   both modes for as long as the old files survive pruning.
 - **Pruning is keyed on the host string.** Filenames are `wiser_<safe_host>_<kind>_<ts>.zip` and
@@ -691,13 +721,13 @@ Asymmetries on it:
 | `hassfest@master` and `hacs/action@main` in `validate.yml` | **mutable refs**, re-resolved on every run, and there is a nightly `cron: "0 0 * * *"` | CI can start failing or start passing differently on an untouched repo. `actions/checkout`, `actions/setup-python` are SHA-pinned and `ruff==0.17.3` is version-pinned, so this is the only moving piece in CI |
 | `pytest-homeassistant-custom-component==0.13.375` | pinned, but it pulls a **real** `homeassistant` transitively | see the next table row — this pin is what decides which code the suite exercises |
 | `tests/conftest.py` mocking | it injects `homeassistant.*` mocks **only when `homeassistant` is not importable** | so CI (HA installed) and the documented local Windows setup (HA not installed) run *different code* from the same test files. "Tests pass locally" and "tests pass in CI" are not the same claim |
-| Controller firmware | updated by the installer/user, out of band | the export gates, the 500 behaviour, `api.base` from `/.well-known/knx`, and the engineering-unit conversions are all firmware behaviour. Every measured fact in [docs/controller-api.md](controller-api.md) is pinned to firmware 3.1.0 |
+| Controller firmware | updated by the installer/user, out of band | the export gates, the 500 behaviour, `api.base` from `/.well-known/knx`, and the engineering-unit conversions are all firmware behaviour. Every measured fact in [docs/controller-api.md](controller-api.md) is pinned to firmware 3.1.0. The absences are firmware facts too: `GET /messaging/ws` 404s *on this firmware*, and a later one could serve it — so that row is a reason not to build a websocket client today, not proof that one will never be possible |
 | The Touch widget configuration | an installer edits a widget; nothing notifies HA | devices appear, change type, fan out or vanish. Nothing is exported until the gates pass, and nothing becomes an *entity* until the entry reloads |
 | The size of the project backup | the controller's **trend data lives inside the archive** and keeps growing; nobody acts | `wiser_backups/` grows without any config change, and any size-based assertion about a backup rots on its own. Measured on the skillset's reference controller: 423–431 KB earlier, 452133 B on 2026-11-20, entry count unchanged throughout. This is why the entry count is the only thing compared |
-| The controller's self-signed certificate | rotation, regeneration, expiry | a pinned fingerprint stops matching → `WiserKnxCertificateError` → `ConfigEntryAuthFailed` → reauth, which shows the old and new fingerprints and never re-trusts automatically |
+| The controller's self-signed certificate | rotation, regeneration, expiry | a pinned fingerprint stops matching → `WiserKnxCertificateError` → `ConfigEntryAuthFailed` → reauth, which shows the old and new fingerprints and never re-trusts automatically. This fired on a real installation on 2026-11-22 and the card appeared as designed; submitting it calls `async_update_reload_and_abort`, so the **entry survives and the entity ids with it**. The branch a user is likely to take instead — delete and re-add — is the one that re-keys everything (see *Has no rollback*), which is why the README now says to submit the card |
 | The controller's IP | DHCP | zeroconf/dhcp re-discovery updates the entry host when the stable `unique_id` matches. Already-written backup filenames keep the old host and fall out of pruning |
 | HA core | users update it | min supported is `hacs.json`'s `2024.12.0`. Known pending cosmetic deprecation: `via_device` in `entity.py` should become `via_device_id` |
-| HACS / GitHub releases | a published release is offered to every user | HACS only offers an update when tag, published release and `manifest.json` `version` agree |
+| HACS / GitHub releases | a published release is offered to every user | HACS only offers an update when tag, published release and `manifest.json` `version` agree — and it reads **releases**, not tags. A pushed tag with no release, a draft, or a pre-release reaches nobody: v0.8.0 sat tagged on GitHub for a day while HACS offered nothing (2026-11-22), and v0.7.0-beta.1/.2 are published as pre-releases and are therefore still invisible unless the user has turned on beta versions for this repository. The release step is manual and there is no `gh` CLI on the maintainer's host, which is what makes it skippable |
 
 `manifest.json` has `"requirements": []` — the integration itself pulls no Python dependency, so
 there is no runtime dependency-bump exposure at all. Everything above is either CI or the
@@ -736,6 +766,7 @@ controller.
 | …and it never recovers | a Touch **`se-danfoss-thermostat` (floor heating) widget with `object-device-status` populated** | makes `GET /datapoints` return 500 for as long as the widget exists; deleting it restores the endpoint immediately. 37 other widget types declare the same slot and are all harmless — it is the combination |
 | Entry fails to set up, retries with backoff | `ConfigEntryNotReady` from the first refresh | a 5xx or an unreachable controller at startup. Correct behaviour, not a fault |
 | HA asks to re-authenticate | `ConfigEntryAuthFailed` | either 401/403 (credentials changed on the controller) **or** a certificate that no longer matches the pin. The reauth flow distinguishes them |
+| A **"Controller certificate changed"** card on an installation that was working | **not a fault** | the controller now presents a different certificate than the pinned one — a regenerated or reinstalled controller certificate is the usual cause, and an upgrade is often just when it is first noticed. Compare the new fingerprint with the controller and **submit the card**: that keeps the entry, the entity ids and the history. Deleting the integration to get past it re-keys every entity |
 | One device shows **Unavailable** while the rest are fine | **not a fault** | the function is published but its datapoints have not attached yet — 15 s typically, minutes during config churn. Recovers on a later poll. `fct.content` (Content widget) legitimately never has any |
 | A widget configured in Touch has no HA device at all | the controller's export gates | needs **both** a write object and its status feedback; and `disable_export` suppresses export when stored as a real boolean (stored as the integer `1` it is ignored, so it *looks* set and is not). Neither is visible in the function/datapoint graph |
 | A new widget appears in the API but gets no entity | the controller's export latency, then the integration | since v0.8.0 every platform adds what the plan grew on each poll, so a new device appears within one poll of its *datapoints* being published. A function with no datapoints yet produces nothing, by design |
@@ -766,6 +797,8 @@ controller.
 | A repair issue about insecure transport | configuration, not a fault | `insecure_tls` (ssl on, verification off, no pin) and `insecure_http` (ssl off) are mutually exclusive and are re-synced on every setup |
 | Reads are slow / the controller is loaded | collection size | collections are never paged, so every poll transfers the whole datapoint set. `se-logic-thermostat` at full slots alone is 25 functions / 48 datapoints |
 | Tests pass locally but fail in CI (or the reverse) | the conftest mock/real divergence | mocks are injected only when `homeassistant` is not importable |
+| A new version is committed, tagged and pushed, and HACS offers nothing | the **release** step, not HACS and not the integration | HACS reads published releases. A tag on GitHub with no release attached is invisible, and so is a draft or a pre-release unless the user has enabled beta versions for this repository. Check `GET /repos/.../releases/latest`: it must answer the new tag with `draft=false` and `prerelease=false`, and `manifest.json` at that tag must match it |
+| HACS shows a commit hash instead of a version | HACS installed from the `main` branch | ⋮ → *Redownload* and pick a release version. Nothing in the integration can detect or report this |
 
 ---
 
@@ -788,7 +821,9 @@ controller.
 | An enum member encodes by name, not by list position | **measured** | `dpt.heatCool` published `["heat","cool"]`; `heat` → raw `01`, `cool` → raw `00`, decoding the same way back |
 | The function/datapoint graph is a cache the `apit3` daemon regenerates | **measured** | with that daemon stopped: 200s, live values, and no new widget exported at any wait |
 | `dpt.R-G-B` carries a six-digit hex triplet | **observed-only** | the `3BHEX` unit and the measured values match it; a non-triplet value is reported as no colour rather than parsed |
-| `Accept: application/json` → 406 on the 3rd-party API | **measured** | probed |
+| The 3rd-party API's `Accept` rule: **match the served type or wildcard it, and never omit the header** | **measured**, full matrix | 2026-11-22: `*/*`, `application/*`, `application/vnd.api+json` and any list containing `*/*` → 200; `application/json` alone, `text/*` **and an absent header** → 406. So the earlier summary ("plain json is 406") was true but misleading — the two `/.well-known/knx` probes in `api.py` send `application/json, */*` and sit in the 200 column *only* because of the `*/*`. Dropping it would turn every answer on that surface into a 406, which reads like a wrong endpoint. The matrix is in [docs/controller-api.md](controller-api.md) |
+| The management route is 39 operations wide, HTTPS-only, and restore is callable with the integration's own credentials | **measured** | the skillset's app-store survey, 2026-11-22. This integration calls four of those operations; see [§3](#explicitly-not-part-of-this-system) for why the rest stay unexposed |
+| `custom/deviceInfo` carries no MAC and no serial on firmware 3.1.0 | **measured 2026-11-21**, and now **in conflict with a later reading** | the 2026-11-21 live read returned only `architecture`, `fwVersion`, `hwVersion`, `lastUpdate`, `uptime`; the 2026-11-22 management-surface survey reports the same endpoint returning the unit's **service tag**. Both cannot be complete. Unresolved here, and deliberately not guessed at — ask for a re-read of the payload's key names. What *is* certain from the code: `identity.py` matches only `macAddress`/`mac`/`MAC`/`macaddress` and `serialNumber`/`serial`/`serialnumber`, and `health.parse_health` publishes neither, so a field under any other name is adopted as identity by nothing and published by nothing. If a re-read names it `serialNumber`, that changes — and it would become entry identity *and* a value in a public diagnostic |
 | Collections ignore `?offset=`/`?limit=` | **measured** | `items == total` on every request |
 | Export needs write object **and** status feedback | **measured** | a test layout built with channels deliberately incomplete, compared against the dump |
 | `disable_export` is a real second gate, boolean-only | **measured** | written both as `true` and as `1`, then read back |
@@ -814,24 +849,41 @@ controller.
 | `fct.gasSensor` concentrations (factor of 1000) | **observed-only, unexplained** | `se-air-quality` `no2`/`ozone` published `0.0215` for a raw 21.5. Sensors from functions are not imported, so it is off-path |
 | zeroconf matchers (`wiser*`, `spacelynk*`, `logicmachine*` on `_http._tcp`) | **inferred** | from `manifest.json`; the probe-before-prompt guard exists precisely because the match is a guess |
 | DHCP OUI matchers (`000CC6*`, `000054*`, `E04F43*`) | **inferred** | vendor ranges; they cover far more than controllers, hence the probe |
-| The whole push/subscription path | **inferred from the spec only** | `POST /subscribe`, `GET /messaging/ws`, `/subscriptions/*` are in `schneider_knx_iot_3rdparty_v1_openapi.json` and **never opened**. The skillset notes subscriptions also deliver two built-in automation-trigger virtuals, which would need filtering — untested here |
+| `GET /messaging/ws` is **not served** by this firmware | **measured — an absence, deliberately established** | 2026-11-22, firmware 3.1.0 / `apit3` 1.36.3: 404 for every subprotocol and path shape, with and without a credential, identical to a deliberately invented path, while the same request builder reached 200 on `/node` in the same run; nginx registers no `messaging/*` route, the on-box OpenAPI set defines none, and the string is absent from `/data/apps` and `/www`. Four independent lines agreeing on an absence is as close as this project gets to proving one. **Do not write a frame encoder for it** |
+| `POST /subscribe` + `DELETE /subscriptions/{id}` work, and a plain `http://` callback is accepted and genuinely delivered | **measured** | same round. The spec says the callback `url` must be HTTPS; the controller stores the scheme intact and delivers to it anyway — which is what makes push reachable for an ordinary HA install, at the price of values and signature crossing the LAN in clear text. `DELETE` → 204, proven by re-driving the bus and recording silence |
+| The callback payload reuses the existing decoder: JSON:API, one datapoint per POST, `value` **always a string**, same engineering units as `GET /datapoints`, `timestamp` real ISO-8601 UTC | **measured** | same round. The subscription silently includes the two automation-trigger virtuals, so a consumer must filter inbound by datapoint id |
+| `X-Callback-Signature` = `base64(lowercase_hex(HMAC-SHA256(secret, msg)))` over `"POST " + path + " HTTP/1.1" + authority + Date + len(body) + body` | **measured** | same round. Two traps in one row: it is base64 **of the ASCII hex**, not of the digest; and the `Date` header must be fed in **verbatim** — it is local time mislabelled `GMT`, an hour off the payload's own UTC timestamp, so parsing or re-rendering it breaks the HMAC and it is not a usable clock |
+| A callback is a **state notification, not an event**, and push **fails silent** | **measured** | changes to one datapoint closer than ~0.8 s are coalesced to the latest value (8 transitions at 0.4 s delivered 4) — so never count edges or reconstruct a sequence; and with the delivery daemon killed the subscription stays listed and the whole REST surface keeps answering 200 while nothing is delivered indefinitely. At 1 Hz neither shows up, so casual testing will not find them. This is why **polling must stay** as a backstop with a full re-read on reconnect |
+| All five push rows above | **measured outside this repo** | by the skillset's `push_lab.py` / `push.md` (private, `63f6ace`, 2026-11-22), summarised in this repo's `AGENTS.md` §6. Nothing in this repository has ever opened a subscription, and no Home Assistant has ever received a callback. The rows describe a *controller* contract that a future SMA-112 would have to implement against — they are not evidence about any code here |
 | Every other spec path (`/sites`, `/node`, `/devices`, `/installations`, bulk and project writes, `POST`/`PUT /locations`) | **inferred from the spec only** | never called by this integration, never probed |
+| Edge 1: HACS offers an update only from a published, non-draft, non-pre-release release | **observed-only** | v0.8.0 was tagged and pushed on 2026-11-22 and HACS offered nothing until the release was published; v0.7.0-beta.1/.2 were published *as* pre-releases and are invisible by default. Seen happening, not deliberately tested, and never bisected against HACS's own source |
+| The certificate-changed reauth card is raised on a real installation | **observed-only** | owner-confirmed 2026-11-22: a controller presenting a different certificate than the pinned one produced the **"Controller certificate changed"** card with the new and previously trusted fingerprints, exactly as the code draws it. **Submitting** that card — `async_update_reload_and_abort`, entry and entity ids preserved — is still **inferred from code**: the owner removed and re-added the entry instead, so that branch has never been run |
+| The v0.7.x → v0.8.x upgrade path | **never run** | v0.8.0 stable is the version every existing user will take it on, and no installation has upgraded across it. The one HA-side data point is a fresh v0.8.0-beta.2 install through HACS on 2026-11-22, reported working — no entity list was taken |
 | Everything HA-runtime: flow steps, registries, scheduler, services, backup hooks, migration | **inferred from code** | `tests/conftest.py` mocks HA when it is not installed, so these are reasoned from the code and from the manual checklist in [docs/development.md](development.md), not asserted by the suite in every environment |
 
 ### Never probed
 
-- The push/subscription path, end to end. If it is ever adopted, `iot_class` changes from
-  `local_polling` and gates 5 and 6 above change shape entirely.
-- Restore. Deliberately out of scope; the download side is the only half that was measured. No
-  stored archive has ever been opened with its password or fed back to a controller, by anything
-  in this repo or any record in it. The ZIP gate narrows "we stored something" to "we stored
+- The push/subscription path **from inside Home Assistant**. The controller side is measured (see
+  the rows above); what has never existed is an HA-side implementation — no callback endpoint, no
+  signature verifier, no liveness timeout, no re-assertion on startup. If it is ever adopted,
+  `iot_class` changes from `local_polling` and gates 5 and 6 above change shape entirely.
+- What a subscription does across a **controller reboot**. Deliberately not measured: the unit runs
+  a live house. Depend on neither outcome.
+- Restore. Deliberately out of scope; the download side is the only half that was measured. The
+  restore *endpoints* are no longer unknown — they are among the 39 operations measured on the
+  management route and they answer to these credentials — but no stored archive has ever been
+  opened with its password or fed back to a controller, by anything in this repo or any record in
+  it. The ZIP gate narrows "we stored something" to "we stored
   something that parses" — it does not reach "we stored something that restores", and nothing
   here does.
 - Multi-controller setups. The code supports them (`hass.data[DOMAIN]` is keyed by `entry_id`,
   pruning and filenames are per host, the service fans out), but nothing in the repo records this
   being run against two controllers at once.
-- A controller actually moving its `api.base`, or presenting a changed certificate mid-life. Both
-  code paths exist and are unit-tested; neither has been exercised against real hardware.
+- A controller actually moving its `api.base`. The code path exists and is unit-tested; it has
+  never been exercised against real hardware. (A controller **presenting a changed certificate**
+  mid-life no longer belongs on this list: it happened on 2026-11-22 and the card was raised as
+  designed — see the edge table above for which half of that path is now observed and which half
+  is still only read from the code.)
 - Behaviour on any firmware other than 3.1.0 (`i.MX6UL LM2i`).
 - Anything about `/datapoints` response time or memory at installation sizes larger than the dumps
   in hand. Collections are unpageable, so this is the scaling limit if one is ever hit.
