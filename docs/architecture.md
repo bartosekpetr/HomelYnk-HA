@@ -1,10 +1,12 @@
 # Architecture
 
-Diagram current as of e075ae1 — 2026-11-23. Revised for four things: the push protocol is
-measured and `GET /messaging/ws` **does not exist** on this firmware; the `Accept` rule and the
-width of the management route are measured; the HACS release gate and the certificate-changed card
-are observed rather than inferred; and three leftovers of the entity sweep v0.8.0 deleted are
-corrected.
+Diagram current as of 78fa70f — 2026-11-24. Checked `e075ae1..78fa70f`: the only code change in
+that range is comment-only (`api.py`'s `Accept` docstring), so every component, responsibility and
+edge still holds and both diagrams are untouched. Two rows of [§7](#7-failure-attribution) were
+corrected, because the previous revision updated [§8](#8-confidence) for the measured `Accept`
+matrix and left the attribution table stating the superseded narrower rule: the 406 row now says
+*match the served type or wildcard it, and never omit the header*, and the controller's own
+load-triggered reboot is attributed to the controller rather than left to look like a dropped poll.
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
 a Wiser for KNX controller — config flow and options, the coordinators, the API client, the
@@ -792,8 +794,9 @@ controller.
 | Old backups never get cleaned up | the host string changed | pruning matches on `wiser_<safe_host>_`; files from a previous address are orphaned |
 | An HA backup succeeded but contains a stale controller backup | the controller was unreachable at pre-backup time | by design: a warning is logged and the HA backup is never blocked |
 | Health sensors are blank, everything else works | the management API | the health coordinator is best effort — a failure there never blocks setup |
+| Everything goes unavailable for a minute or two and recovers, and the **Uptime** sensor has restarted | **the controller rebooted itself** | its process monitor `reboot`s the unit when the 1-minute load average reaches **18**. Nothing in the integration triggers it or can prevent it, and nothing in either API announces it — the **Load (1 min)** health sensor climbing is the only advance warning, which is what makes it the one health value worth an alert threshold. Measured on the skillset's reference controller, not on this project's |
 | The entry has no `unique_id` | the management API was unreachable at setup | a legacy IP-based id cannot be converted offline, so it is cleared and re-learned from `deviceInfo` or from discovery later |
-| HTTP 406 from the 3rd-party API | the `Accept` header | must be `application/vnd.api+json, application/json`. Plain `application/json` is 406 — on the 3rd-party API only; the management API takes `application/json` |
+| HTTP 406 from the 3rd-party API | the `Accept` header | the rule is **match the served `application/vnd.api+json` or wildcard it, and never omit the header** (full matrix in [§8](#8-confidence)): `application/json` *alone*, `text/*` and an **absent** header all answer 406, while the served type, `*/*`, `application/*` and any list containing `*/*` answer 200. So trimming `_get_headers` to plain JSON, or dropping the `*/*` from either `/.well-known/knx` probe, turns every answer on that surface into a 406 that reads like a wrong endpoint. The management API is a separate surface and takes `application/json` |
 | A repair issue about insecure transport | configuration, not a fault | `insecure_tls` (ssl on, verification off, no pin) and `insecure_http` (ssl off) are mutually exclusive and are re-synced on every setup |
 | Reads are slow / the controller is loaded | collection size | collections are never paged, so every poll transfers the whole datapoint set. `se-logic-thermostat` at full slots alone is 25 functions / 48 datapoints |
 | Tests pass locally but fail in CI (or the reverse) | the conftest mock/real divergence | mocks are injected only when `homeassistant` is not importable |
