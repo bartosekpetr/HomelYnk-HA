@@ -91,6 +91,16 @@ is the Home Assistant chapter, `widget-matrix.md` the per-widget evidence, `push
 protocol). Everything this integration relies on is restated here in full, so nothing below depends
 on reading it.
 
+That repository is also **not publishable, and not just private by setting**: its own audit of
+2026-11-23 found live controller credentials committed inside probe-result JSON — the admin
+password hash and the BACnet server password in plaintext, both still equal to the values on the
+box. So nothing may be copied out of it into this public repository verbatim; a measurement quoted
+here has to be re-described, which is what the sections below do. The lesson generalises to this
+tree and is why the privacy rules at the end of this file are not the whole defence: the skillset
+blocked credential *file types* in `.gitignore` and every one of those secrets arrived as a
+**value inside a file type the tree exists to commit**. A filename list cannot see into a file it
+is meant to allow.
+
 **Reads can fail without the installation being empty.** This build intermittently answers
 **500** on `/datapoints` and `/functions`, most often while it recomputes its API export
 after a configuration change. `/datapoints` is the single request the whole entity graph is
@@ -189,9 +199,15 @@ own `requiredForApp` tag is **not** the gate and has been measured wrong in both
 answers** (measured 2026-11-21 on the reference controller). The function/datapoint graph is
 not computed per request: the `apit3` app's daemon regenerates it when the Touch
 configuration's CRC changes, and the HTTP handlers serve the cached result with live values
-read separately. On that controller the daemon was **not running** — `touch3`,
-`cloud-connector` and `management` were, `apit3` was not — and the effect was precisely
-split:
+read separately. **`apit3` is two components, and only one of them is a process** (measured
+2026-11-22): the REST surface — `/functions`, `/datapoints`, `/subscribe`, `/subscriptions` —
+is nginx-embedded Lua (`content_by_lua_file`) with **no process of its own**, so it answers
+whenever nginx is up, while the daemon is a real process (`lua /lib/apps/daemon.lua apit3 …`,
+pidfile `/var/run/apps-daemon-apit3.pid`). That is the structural reason the freeze below is
+invisible from the API: the half that answers requests does not need the half that maintains
+the export, so there is nothing for a 5xx or an empty collection to report. On that controller
+the daemon was **not running** — `touch3`, `cloud-connector` and `management` were, `apit3`
+was not — and the effect was precisely split:
 
 | | behaviour with the daemon down |
 |---|---|
@@ -400,7 +416,22 @@ subscribed.
    `Date` header is **local time labelled `GMT`** (an hour off the payload's own UTC timestamp on a
    CET unit) — it is inside the signed string, so feed it back **verbatim**; parsing or re-rendering
    it breaks the HMAC, and it is not a usable clock. The construction was read off the daemon's
-   stripped LuaJIT bytecode and then verified against live frames.
+   stripped LuaJIT bytecode instruction by instruction and then matched against live frames
+   **2 of 2 exactly** — the bytecode alone would have been a reading; the match is what makes it
+   a fact.
+
+   🔴 **What that signature is worth, and what it is not.** The `secret` is stored on the
+   controller **in plaintext**, in Redis under `meta.secret` beside the callback URL (measured
+   2026-11-22). Anything with a root shell or on-box Lua can read every registered callback
+   secret, so it is a signing key kept in clear next to the address it authenticates, and a
+   reader of it can forge a callback that a *correct* verifier accepts. Verify the header anyway —
+   it is what rejects a frame tampered with in flight, which matters because the channel may be
+   plain HTTP — but treat it as tamper-evidence, not as proof of origin, and do not let a valid
+   signature authorise anything beyond "a datapoint value changed". The rules that follow from
+   it for SMA-112: generate a **fresh random secret per config entry** (never the controller
+   password, never anything reused elsewhere in Home Assistant), re-generate it whenever the
+   subscription is re-asserted, keep it out of the log and out of diagnostics, and bound the
+   callback path to datapoint ids this entry actually subscribed.
 4. 🔴 **A callback is a state notification, not an event.** Latency is sub-second (0.08–0.99 s
    across 8 samples) against the 10 s poll, and a sustained 1 Hz change delivered 40 of ~40. But a
    burst of 8 transitions 0.4 s apart delivered only **4** callbacks, each carrying the value as of
@@ -430,3 +461,13 @@ for an entity graph that must stay aligned with `/datapoints`.
 
 - `wiser_dump_raw.json`, `wiser_backup_*.bin`, `wiser_mgmt_probe.json` and Touch backup JSON files (`touch_backup*.json`) are private. All of them are git-ignored; never copy any of them into the repo or into chat output.
 - Share `wiser_dump_anon.json` (anonymised titles/ids) or aggregate counts instead.
+- **The git-ignore list above is a filename gate, and a filename gate is not the whole defence.**
+  Everything it names is a file this repository never commits; it says nothing about a credential,
+  a hostname or a real LAN address pasted into a file the repository *does* commit — a doc, a test
+  fixture, a tool's docstring. That is exactly how the skillset shipped two live secrets (above),
+  and this repository is **public**. So check the content of what you are committing, not only its
+  name. The one measured sweep of this tree (2026-11-24, credential-shape scan over every tracked
+  file) found **no credential material**: its ten hits were all `"password": "Password"` UI labels
+  in `strings.json`/`translations/en.json`. The same sweep is what found the owner's real
+  controller address in `tests/` and `tools/`, now replaced — use `192.168.1.x`, `10.0.0.5` or
+  `1.2.3.4` placeholders for a host in any example, fixture or docstring.

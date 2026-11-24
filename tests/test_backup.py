@@ -32,9 +32,9 @@ def test_password_rule():
 
 def test_filename_is_safe_and_sortable():
     name = backup_filename(
-        "192.168.0.104", "system", datetime(2026, 10, 14, 14, 39, 22)
+        "192.168.1.20", "system", datetime(2026, 10, 14, 14, 39, 22)
     )
-    assert name == "wiser_192.168.0.104_system_20261014_143922.zip"
+    assert name == "wiser_192.168.1.20_system_20261014_143922.zip"
     assert "/" not in safe_host("../evil host")
     assert backup_filename("../evil", "project", datetime(2026, 1, 1)).startswith(
         "wiser_.._evil_"

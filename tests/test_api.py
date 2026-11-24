@@ -78,7 +78,7 @@ def test_classify_functions():
 
 
 def test_live_data_parsing():
-    """Test parsing the captured live JSON payload from controller 192.168.0.104."""
+    """Test parsing the captured live JSON payload from a real controller."""
     base_dir = os.path.dirname(os.path.dirname(__file__))
     locations_file = os.path.join(base_dir, "live_locations.json")
     functions_file = os.path.join(base_dir, "live_functions.json")

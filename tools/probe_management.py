@@ -1,7 +1,7 @@
 """Probe the Wiser for KNX management API and take a test backup.
 
 Usage (from the repository root):
-    py -3 tools/probe_management.py 192.168.0.104
+    py -3 tools/probe_management.py 192.168.1.20
 
 Read-only except for creating backup files locally; nothing is changed on the
 controller. Credentials and the backup password are prompted for, never stored.

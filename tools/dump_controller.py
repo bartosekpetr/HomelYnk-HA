@@ -1,7 +1,7 @@
 """Dump a Wiser for KNX controller's API and report how the integration classifies it.
 
 Usage (from the repository root):
-    py -3 tools/dump_controller.py 192.168.0.104
+    py -3 tools/dump_controller.py 192.168.1.20
 
 Credentials are prompted for and never stored. Two files are written:
     wiser_dump_raw.json   - full raw API output (PRIVATE, git-ignored, do not share)
