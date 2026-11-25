@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+- **The lowest brightness on the slider no longer switches a dimmer off.** Home
+  Assistant's minimum brightness is 1 of 255, which is 0.4 % and was being
+  truncated to 0 % — and 0 % is off, so asking a dimmer for its faintest setting
+  turned the light out instead. Any non-zero brightness now reaches the
+  controller as at least 1 %.
+
 ## 0.8.0 - 2026-11-22
 
 Everything the controller exports now becomes an entity. Built on measured

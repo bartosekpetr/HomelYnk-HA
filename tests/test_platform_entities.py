@@ -404,6 +404,30 @@ def test_an_rgbw_light_reads_and_writes_its_channels_as_percentages():
     ]
 
 
+def test_the_lowest_home_assistant_brightness_dims_instead_of_switching_off():
+    """HA brightness 1 is 0.4 %, which truncates to 0 - and 0 % is off.
+
+    So the minimum a user can ask for on the slider must still reach the
+    controller as a dim light, not as a light that went out.
+    """
+    dimmer = _dp(
+        "dim", "dic:dpa.418.63", "urn:knx:dpt.scaling", True, unit="%", value="50"
+    )
+    light = _composite(WiserKnxLight, ["urn:knx:fct.dimming"], dimmer)
+
+    asyncio.run(light.async_turn_on(brightness=1))
+    assert _written(light)[0].args == ("dim", 1)
+
+    asyncio.run(light.async_turn_on(brightness=128))
+    assert _written(light)[1].args == ("dim", 50)
+
+    asyncio.run(light.async_turn_on(brightness=255))
+    assert _written(light)[2].args == ("dim", 100)
+
+    asyncio.run(light.async_turn_off())
+    assert _written(light)[3].args == ("dim", 0)
+
+
 def test_an_rgb_light_parses_the_hex_triplet_it_publishes():
     rgb = _dp(
         "rgb", "dic:dpa.423.52", "urn:knx:dpt.R-G-B", True, unit="3BHEX", value="FF8000"

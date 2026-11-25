@@ -68,8 +68,15 @@ def _percent_to_255(percent: float | None) -> int | None:
 
 
 def _255_to_percent(value: int) -> int:
-    """Return a Home Assistant 0-255 value as the percentage the controller wants."""
-    return int(min(100, max(0, value / 255.0 * 100)))
+    """Return a Home Assistant 0-255 value as the percentage the controller wants.
+
+    Home Assistant's lowest non-zero brightness is 1, which is 0.4 % and
+    truncates to 0 - a write that switches the light off instead of dimming it
+    to its minimum. Any non-zero brightness therefore sends at least 1 %.
+    """
+    value = int(min(255, max(0, value)))
+    percent = int(value / 255.0 * 100)
+    return max(1, percent) if value > 0 else 0
 
 
 class WiserKnxLight(WiserKnxBaseEntity, LightEntity):
