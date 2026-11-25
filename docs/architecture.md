@@ -1,12 +1,15 @@
 # Architecture
 
-Diagram current as of 78fa70f — 2026-11-24. Checked `e075ae1..78fa70f`: the only code change in
-that range is comment-only (`api.py`'s `Accept` docstring), so every component, responsibility and
-edge still holds and both diagrams are untouched. Two rows of [§7](#7-failure-attribution) were
-corrected, because the previous revision updated [§8](#8-confidence) for the measured `Accept`
-matrix and left the attribution table stating the superseded narrower rule: the 406 row now says
-*match the served type or wildcard it, and never omit the header*, and the controller's own
-load-triggered reboot is attributed to the controller rather than left to look like a dropped poll.
+Diagram current as of 0fc1359 — 2026-11-25. Checked `78fa70f..0fc1359`: **nothing** under
+`custom_components/`, `manifest.json`, `hacs.json` or `.github/` changed in that range, so every
+component, responsibility and edge still holds and both diagrams are untouched. The range is two
+documentation commits plus a privacy scrub (the owner's real controller address replaced with the
+`192.168.1.x` placeholder in two tests and two tool docstrings), and `0fc1359` already carried its
+own two new measurements into [§8](#8-confidence): the `apit3` component split and the plaintext
+callback secret. One row was added to [§7](#7-failure-attribution) to finish that job — the
+attribution table had no entry for a **stopped export daemon**, which is the third cause of "a
+widget configured in Touch has no HA device" and the only one of the three with no in-band
+detector.
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
 a Wiser for KNX controller — config flow and options, the coordinators, the API client, the
@@ -777,6 +780,7 @@ controller.
 | A **"Controller certificate changed"** card on an installation that was working | **not a fault** | the controller now presents a different certificate than the pinned one — a regenerated or reinstalled controller certificate is the usual cause, and an upgrade is often just when it is first noticed. Compare the new fingerprint with the controller and **submit the card**: that keeps the entry, the entity ids and the history. Deleting the integration to get past it re-keys every entity |
 | One device shows **Unavailable** while the rest are fine | **not a fault** | the function is published but its datapoints have not attached yet — 15 s typically, minutes during config churn. Recovers on a later poll. `fct.content` (Content widget) legitimately never has any |
 | A widget configured in Touch has no HA device at all | the controller's export gates | needs **both** a write object and its status feedback; and `disable_export` suppresses export when stored as a real boolean (stored as the integer `1` it is ignored, so it *looks* set and is not). Neither is visible in the function/datapoint graph |
+| …and both its slots and `disable_export` are right, and the API keeps answering 200 | the controller's **export daemon**, and there is nothing here to detect it | the function/datapoint graph is a cache that `apit3`'s daemon regenerates when the Touch config CRC changes, and nothing on the controller supervises that daemon. With it stopped the whole REST surface still answers 200 with live values and **no new widget ever appears** — because the half that answers requests is nginx-embedded Lua with no process of its own, while the half that maintains the export is the daemon ([§8](#8-confidence)). So a frozen export is indistinguishable from a complete one from inside Home Assistant and **no detector should be added**; the fix is controller-side, and neither a reboot nor an app update is a reliable one |
 | A new widget appears in the API but gets no entity | the controller's export latency, then the integration | since v0.8.0 every platform adds what the plan grew on each poll, so a new device appears within one poll of its *datapoints* being published. A function with no datapoints yet produces nothing, by design |
 | A 6-gang switch shows one entity instead of six | the integration, if it ever stops enumerating | channel fan-out is 1:N; grouping must be by `schneider:parentFunction`, never by widget id, and must not stop at the first match |
 | A command does nothing, HA shows the new state anyway | the controller accepted and discarded it | 202 ≠ applied. Check the log for the `accepts only …` warning from `_enum_member`; if it is absent the value matched the enum and the write did reach the bus |
