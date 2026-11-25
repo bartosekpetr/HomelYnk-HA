@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
@@ -23,6 +23,8 @@ from .api import (
 from .const import (
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    PUSH_BACKSTOP_INTERVAL,
+    PUSH_MISS_THRESHOLD,
     SERVER_ERROR_HINT_AFTER,
     STATIC_MAX_AGE,
     STATIC_REFRESH_INTERVAL,
@@ -71,6 +73,18 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.client = client
         self.backup_manager = None
         self.health: WiserKnxHealthCoordinator | None = None
+        # The push manager, attached by async_setup_entry. None means this entry
+        # polls and nothing else, which is also every failure path's destination.
+        self.push: Any = None
+        # The configured scan interval. The poll slows to PUSH_BACKSTOP_INTERVAL
+        # while callbacks are arriving and comes back to this the moment they are
+        # not, so the fallback cadence has to survive the switch.
+        self._poll_interval = update_interval
+        # datapoint id -> monotonic time a callback last reported it
+        self._push_seen: dict[str, float] = {}
+        self._last_poll_at = 0.0
+        # Consecutive polls that found a value changed with no callback for it
+        self._push_miss_polls = 0
         # {platform: [entity spec]} for the data of the last successful poll. Computed
         # once per poll here rather than once per platform, because every platform
         # listens for new entities (a function is published before its datapoints).
@@ -151,6 +165,130 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._static_next_attempt = now + STATIC_RETRY_INTERVAL
         self._unresolved_refs = self._unknown_refs(datapoints)
 
+    @callback
+    def async_apply_push_values(self, values: list[dict[str, Any]]) -> int:
+        """Apply datapoint values delivered by a callback; return how many changed.
+
+        A callback is a **state notification, not an event**: changes to one
+        datapoint closer together than about 0.8 s are coalesced and only the
+        latest is delivered (8 transitions 0.4 s apart arrived as 4). So each
+        value is applied as "this is the current value" and nothing here counts
+        edges or reconstructs a sequence.
+
+        The value needs no conversion: it arrives as a string in the same
+        engineering units as `GET /datapoints`, so the one decoder in
+        `datapoints.py` serves both paths.
+
+        A datapoint this poll has never seen is ignored. That is also the filter
+        the measurement asks for - a subscription silently includes the two
+        automation-trigger virtuals - and it keeps a frame from inventing state
+        for an id the entity graph does not know.
+        """
+        datapoints = (self.data or {}).get("datapoints")
+        if not datapoints:
+            return 0
+        now = time.monotonic()
+        changed = 0
+        for item in values:
+            dp_id = item.get("id")
+            datapoint = datapoints.get(dp_id)
+            if datapoint is None:
+                continue
+            self._push_seen[dp_id] = now
+            value = format_datapoint_value(item.get("value"))
+            if datapoint.get("value") != value:
+                datapoint["value"] = value
+                changed += 1
+        if changed:
+            # Deliberately not async_set_updated_data: that would reset the poll
+            # timer on every callback and a busy installation would postpone the
+            # backstop poll for ever. Patch and notify, as the optimistic write
+            # path does.
+            self.async_update_listeners()
+        return changed
+
+    def _carry_over_pushed(
+        self, datapoints: dict[str, dict[str, Any]], since: float
+    ) -> None:
+        """Keep values a callback delivered while this poll was still in flight.
+
+        The poll's answer is a snapshot taken before that callback arrived, so
+        letting it land unchanged would roll the entity back to the old value
+        until the next poll - which, with push working, is a whole backstop
+        interval away.
+        """
+        held = (self.data or {}).get("datapoints") or {}
+        for dp_id, seen_at in self._push_seen.items():
+            if seen_at < since:
+                continue
+            pushed = held.get(dp_id)
+            polled = datapoints.get(dp_id)
+            if pushed is None or polled is None:
+                continue
+            polled["value"] = pushed.get("value")
+
+    def _push_missed(self, datapoints: dict[str, dict[str, Any]]) -> list[str]:
+        """Datapoints whose value changed since the last poll with no callback for it.
+
+        This is the only liveness signal there is. Nothing in the API
+        distinguishes "subscribed and quiet" from "subscribed and dead": the
+        record stays listed and every endpoint keeps answering 200 while the
+        delivery daemon is gone. So the backstop poll doubles as the probe, and a
+        change it finds that no callback reported is what gives the daemon away.
+
+        A value this integration wrote itself is already in the local copy, so an
+        optimistic write cannot be mistaken for a missed callback.
+        """
+        previous = (self.data or {}).get("datapoints") or {}
+        if not previous:
+            return []
+        missed = []
+        for dp_id, datapoint in datapoints.items():
+            before = previous.get(dp_id)
+            if before is None or datapoint.get("value") == before.get("value"):
+                continue
+            if self._push_seen.get(dp_id, -1.0) >= self._last_poll_at:
+                continue
+            missed.append(dp_id)
+        return missed
+
+    def _check_push_delivery(self, datapoints: dict[str, dict[str, Any]]) -> None:
+        """Tell the push manager when a poll proves delivery has stopped."""
+        if self.push is None or not self.push.subscribed:
+            return
+        missed = self._push_missed(datapoints)
+        if not missed:
+            self._push_miss_polls = 0
+            return
+        self._push_miss_polls += 1
+        # One missed datapoint can be the race between a poll response and a
+        # callback still in flight, so one is confirmed over a second poll.
+        # Several in one poll is delivery having stopped.
+        if len(missed) >= PUSH_MISS_THRESHOLD or self._push_miss_polls > 1:
+            self._push_miss_polls = 0
+            self.push.async_delivery_stopped(len(missed))
+
+    @callback
+    def async_set_push_cadence(self, backstop: bool) -> None:
+        """Slow the poll to the backstop, or put it back on the configured interval.
+
+        The poll is never switched off. Push fails silent, nothing on the
+        controller restarts the daemon that delivers it, and a reboot is not a
+        reliable fix either, so the only safe destination for every failure path
+        is the polling this integration has always done.
+        """
+        wanted = timedelta(
+            seconds=PUSH_BACKSTOP_INTERVAL if backstop else self._poll_interval
+        )
+        if self.update_interval == wanted:
+            return
+        _LOGGER.debug(
+            "Polling every %s s (%s)",
+            int(wanted.total_seconds()),
+            "push is delivering" if backstop else "push is not delivering",
+        )
+        self.update_interval = wanted
+
     async def async_refresh_structure(self) -> None:
         """Refetch locations and functions on the next cycle, run now (on demand)."""
         self._static_next_attempt = 0.0
@@ -164,8 +302,18 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # Cold start keeps the original order (locations, functions, datapoints)
                 # and any error propagates, so setup fails rather than starting half-blind.
                 await self._async_refresh_static()
+            started = time.monotonic()
             datapoints = await self.client.get_datapoints()
             self._server_errors = 0
+            self._carry_over_pushed(datapoints, started)
+            self._check_push_delivery(datapoints)
+            self._last_poll_at = time.monotonic()
+            # Ids the controller no longer exports, so the map cannot grow for ever
+            self._push_seen = {
+                dp_id: at
+                for dp_id, at in self._push_seen.items()
+                if dp_id in datapoints
+            }
             if cold:
                 self._unresolved_refs = self._unknown_refs(datapoints)
             else:
@@ -194,6 +342,12 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     functions[p_func_id]["location_id"] = p_loc_id
 
             self.entity_plan = plan_entities(functions)
+            if self.push is not None:
+                # A function is published before its datapoints, so the exported
+                # set grows after setup. Whatever appeared since the last
+                # subscribe has to be added to it or those entities would only
+                # ever move on a backstop poll.
+                self.push.async_note_datapoints(set(datapoints))
             return {
                 "locations": locations,
                 "functions": functions,

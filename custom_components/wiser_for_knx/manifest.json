@@ -8,6 +8,9 @@
     "@bartosekpetr"
   ],
   "config_flow": true,
+  "dependencies": [
+    "webhook"
+  ],
   "dhcp": [
     {
       "macaddress": "000CC6*"
@@ -21,7 +24,7 @@
   ],
   "documentation": "https://github.com/bartosekpetr/HomelYnk-HA",
   "integration_type": "hub",
-  "iot_class": "local_polling",
+  "iot_class": "local_push",
   "issue_tracker": "https://github.com/bartosekpetr/HomelYnk-HA/issues",
   "requirements": [],
   "version": "0.8.1-beta.1",

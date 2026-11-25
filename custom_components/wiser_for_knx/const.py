@@ -45,6 +45,42 @@ SERVER_ERROR_HINT_AFTER = 3
 ISSUE_INSECURE_TLS = "insecure_tls_{entry_id}"
 ISSUE_INSECURE_HTTP = "insecure_http_{entry_id}"
 
+# Push: the controller's HTTP callback channel (POST /subscribe). On by default;
+# the poll never goes away, it slows down to PUSH_BACKSTOP_INTERVAL while callbacks
+# are arriving, because push fails silent and nothing on the controller restarts the
+# daemon that delivers it (docs/controller-api.md §3b).
+CONF_PUSH = "push"
+DEFAULT_PUSH = True
+SUBSCRIBE_PATH = "subscribe"
+SUBSCRIPTIONS_PATH = "subscriptions"
+# The poll's cadence while callbacks are proving themselves. Long enough to stop
+# re-transferring the whole datapoint collection every few seconds (the collections
+# are not pageable), short enough to be a real backstop.
+PUSH_BACKSTOP_INTERVAL = 300  # seconds
+# Wait before re-asserting a subscription the controller refused, doubling up to the
+# cap. The controller never re-establishes delivery by itself, so this never stops.
+PUSH_RETRY_INTERVAL = 60  # seconds
+PUSH_RETRY_MAX_INTERVAL = 1800  # seconds
+# Datapoints whose value changed between two backstop polls without a callback
+# reporting them. One can be the race between a poll response and a callback in
+# flight, so one is confirmed over two polls while two in a single poll is taken as
+# delivery having stopped.
+PUSH_MISS_THRESHOLD = 2
+# Shortest gap between two subscription re-asserts, so a controller that keeps
+# changing its exported set cannot turn every poll into a re-subscribe.
+PUSH_RESUBSCRIBE_DEBOUNCE = 60  # seconds
+# No cap on datapoints per subscribe body has been measured. The whole set is sent
+# as one body; only if the controller refuses it is it retried in batches of this
+# size, so the size is a fallback and not a prediction.
+PUSH_SUBSCRIBE_CHUNK = 100
+
+# Values of the "Push" diagnostic sensor
+PUSH_STATUS_OFF = "off"  # turned off in the options
+PUSH_STATUS_UNAVAILABLE = "unavailable"  # could not be set up; polling at full speed
+PUSH_STATUS_PENDING = "pending"  # subscribed, no callback seen yet
+PUSH_STATUS_LIVE = "live"  # callbacks arriving; the poll is the slow backstop
+PUSH_STATUS_DEGRADED = "degraded"  # delivery stopped; polling at full speed again
+
 # Management API (backups, device info) and backup settings
 MGMT_API_BASE = "/api/management/v1"
 CONF_BACKUP_PASSWORD = "backup_password"

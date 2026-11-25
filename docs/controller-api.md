@@ -343,12 +343,12 @@ load, memory, storage) rather than passing the payload through, so an identity f
 future firmware is published by nothing. **Keep that whitelist shape** — never forward a management
 payload wholesale into an attribute dict.
 
-## 3. Push – `POST /subscribe` (measured, not yet used)
+## 3. Push – `POST /subscribe` (measured, and now used)
 
-The integration polls `GET /datapoints` every 10 s. The 3rd Party API advertises two ways not
-to, and on 2026-11-22 both were measured end to end on the reference unit (firmware 3.1.0,
-`apit3` 1.36.3). Nothing in `custom_components/` opens either one today — this section exists so
-that when SMA-112 is built it is built against measurements instead of the spec.
+The 3rd Party API advertises two ways not to poll, and on 2026-11-22 both were measured end to
+end on the reference unit (firmware 3.1.0, `apit3` 1.36.3). One of them does not exist. The other
+is what `push.py` and `push_utils.py` implement, on by default since SMA-112 — §3c is what the
+code does with each measurement below, and it is the part to read before changing any of it.
 
 | | endpoint | what the spec says | what this firmware does |
 |---|---|---|---|
@@ -450,6 +450,45 @@ subscribed.
    being removed. Re-assert the subscription on startup and after any gap — behaviour across a
    controller **reboot** was deliberately not measured (the reference unit is a live house), so
    depend on no prediction either way.
+
+### 3c. What the integration does with each of those
+
+`push.py` owns the subscription and the callback endpoint; `push_utils.py` holds the pure parts
+(signature, frame decode, body building) and is unit-tested in `tests/test_push_utils.py`. The
+mapping from the five measurements above to the code:
+
+| Measurement | What the code does |
+|---|---|
+| `http://` callback is honoured | the callback URL is Home Assistant's **internal** URL (`get_url`, cloud excluded) plus a webhook path, so a plain-HTTP install works with no extra setup |
+| frame needs no new decoder | `parse_callback_body` returns `{id, value, timestamp}` and the value goes through the same `format_datapoint_value` the poll path uses. **No second decoder exists** |
+| the two automation-trigger virtuals are included silently | `coordinator.async_apply_push_values` applies a value only to a datapoint the last poll actually returned |
+| signature is base64 of the **ASCII hex**, `Date` verbatim | `push_utils.expected_signature`, compared with `hmac.compare_digest`. The `path` and `authority` come from the **registered** URL, not from the inbound request, so a reverse proxy rewriting `Host` cannot invalidate a frame |
+| the secret is kept in clear on the controller | a fresh `secrets.token_urlsafe(32)` per entry, regenerated on **every** re-assert, never logged, never in the sensor's attributes. A valid signature authorises exactly one thing: setting that datapoint's value |
+| a callback is a state notification | each frame is applied as "this is the current value"; nothing counts edges |
+| push fails silent and does not self-heal | **the poll never stops.** It slows to `PUSH_BACKSTOP_INTERVAL` (300 s) once a callback actually arrives and returns to `scan_interval` the moment delivery looks dead |
+
+The liveness check is the part with no API support, so it is worth stating plainly: nothing
+distinguishes "subscribed and quiet" from "subscribed and dead", so **the backstop poll is the
+probe**. `coordinator._push_missed` compares each poll's values against what is held locally and
+counts a datapoint that moved with no callback for it. Two in one poll is taken as delivery having
+stopped; one is confirmed over a second poll, because a single miss can be the race between a poll
+answer and a callback still in flight. An optimistic write cannot be mistaken for a miss — it has
+already patched the local copy. That same race is why `_carry_over_pushed` keeps a value a
+callback delivered *during* a poll: the poll's answer is the older snapshot, and letting it land
+would roll the entity back for a whole backstop interval.
+
+Three things are **not measured** and the code deliberately depends on neither answer: whether a
+re-subscribe replaces or duplicates a record (so a re-assert always deletes first, then creates),
+whether there is a cap on datapoints per subscribe body (the whole set goes in one request and
+batching is only a *fallback* if the controller refuses it), and whether a subscription survives a
+controller reboot (so it is re-asserted on a slow beat rather than trusted). Orphans are matched
+by callback **path**, which is derived from the config entry id: the case that leaves an orphan is
+exactly the one where Home Assistant's address changed, so matching the authority would miss it,
+and matching the path means one entry can never delete another's record.
+
+🪤 Everything in this section that needs Home Assistant itself — the webhook registration, the
+watchdog, the unload path, the cadence switch — is **not covered by the test suite**, which mocks
+Home Assistant. The signature, the frame decode and the liveness decision are covered.
 
 The alternative that already works, and why it is still the wrong choice here: the localbus
 WebSocket at `/apps/localbus.lp` upgrades (101) over pinned TLS with Basic auth and carries live

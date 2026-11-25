@@ -27,12 +27,14 @@ from .const import (
     CONF_BACKUP_KEEP,
     CONF_BACKUP_PASSWORD,
     CONF_CERT_FINGERPRINT,
+    CONF_PUSH,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
     DATA_INITIAL_BACKUP,
     DEFAULT_BACKUP_INTERVAL,
     DEFAULT_BACKUP_KEEP,
     DEFAULT_PORT,
+    DEFAULT_PUSH,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
     DEFAULT_VERIFY_SSL,
@@ -45,6 +47,7 @@ from .const import (
 from .coordinator import WiserKnxDataUpdateCoordinator, WiserKnxHealthCoordinator
 from .entity import controller_device_info
 from .identity import stable_id_from_legacy
+from .push import WiserKnxPushManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -180,6 +183,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data[DOMAIN][entry.entry_id] = coordinator
 
+    # Push is on by default. It is attached before the platforms are forwarded so
+    # the diagnostic sensor can read its state, and started afterwards in the
+    # background: subscribing is a round trip to the controller and setup has no
+    # reason to wait for it, least of all because every way it can fail ends in
+    # the polling that is already running.
+    coordinator.push = WiserKnxPushManager(
+        hass=hass,
+        client=client,
+        entry=entry,
+        coordinator=coordinator,
+        enabled=entry.options.get(CONF_PUSH, DEFAULT_PUSH),
+    )
+
     backup_manager = WiserKnxBackupManager(
         hass=hass,
         client=client,
@@ -237,6 +253,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # not that the device is gone.
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    entry.async_create_background_task(
+        hass, coordinator.push.async_start(), "wiser_push_start"
+    )
+
     pending = hass.data.get(DATA_INITIAL_BACKUP, set())
     # The config flow keys the request by the stable id, or by host when none is known yet
     pending_key = next((k for k in (entry.unique_id, host) if k in pending), None)
@@ -271,6 +291,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator: WiserKnxDataUpdateCoordinator = hass.data[DOMAIN].pop(
             entry.entry_id, None
         )
+        if coordinator and coordinator.push:
+            # Deleting the subscription is what stops the controller POSTing at a
+            # listener that no longer exists; it never raises, so an unreachable
+            # controller cannot block the unload.
+            await coordinator.push.async_stop()
         if coordinator and coordinator.backup_manager:
             coordinator.backup_manager.async_stop()
         if coordinator and coordinator.client:
