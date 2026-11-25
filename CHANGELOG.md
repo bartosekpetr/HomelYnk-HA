@@ -2,7 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.8.1-beta.1 - 2026-11-25
+
+A pre-release carrying one fix. It is only offered by HACS if you have turned on
+beta versions for this repository.
 
 - **The lowest brightness on the slider no longer switches a dimmer off.** Home
   Assistant's minimum brightness is 1 of 255, which is 0.4 % and was being
