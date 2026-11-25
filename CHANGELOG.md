@@ -9,6 +9,13 @@ All notable changes to this project are documented in this file.
   truncated to 0 % — and 0 % is off, so asking a dimmer for its faintest setting
   turned the light out instead. Any non-zero brightness now reaches the
   controller as at least 1 %.
+- **Security: upgrade if you are still on 0.7.x or earlier.** Those versions
+  trusted the API base path returned by the controller's own discovery response
+  and used it unchecked when building authenticated requests, so a tampered or
+  spoofed response could have sent the controller credentials to another host.
+  The path is validated as of 0.8.0. Upgrading is all that is required — a value
+  stored before the fix is re-validated when the integration loads, so there is
+  nothing to clear by hand.
 
 ## 0.8.0 - 2026-11-22
 
@@ -79,6 +86,9 @@ Also in this release, from the earlier round of measurements on a real controlle
 - A downloaded backup is now parsed as a ZIP archive before it is stored. The controller answers a backup request with the archive itself — no JSON, no status field — so an error page or an error document returned with HTTP 200 used to be saved as a `.zip` that could not be opened, and it counted as a successful backup. Such a response is now reported as a failure on the *Last backup* sensor and the previously stored backups are left untouched. The number of entries in the archive is written to the debug log; the file size is deliberately not checked, because the project backup keeps growing as the controller's trend data grows.
 - Stored backup files are created with file mode `0600` (readable by Home Assistant only) instead of at the system default. They contain the whole controller configuration.
 - A backup download that times out is now reported as a connection failure instead of raising an unhandled timeout.
+- **Security:** the API base path from the controller's discovery response is now
+  validated before it is used to build authenticated request URLs. Versions
+  0.1.0 through 0.7.0-beta.2 used it unchecked.
 
 ## 0.7.0-beta.2 - 2026-11-05
 
