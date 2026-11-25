@@ -5,6 +5,7 @@
 - Windows + PowerShell is the primary environment; Python via `py -3` (3.14 tested), pytest.
 - No Home Assistant is installed for tests: `tests/conftest.py` injects mock `homeassistant.*` modules. Only pure code (`widgets.py`, `backup_utils.py`, parts of `api.py`) is really exercised.
 - Git: `$git = "$env:LOCALAPPDATA\Programs\Git\cmd\git.exe"`. The user's terminal needs a corporate proxy for pushes (see below). Every new terminal needs `$git` defined again.
+- On a Linux runner (`python3 -m pytest -q tests`) the suite runs the same, with one trap worth knowing before you debug a red run. `requirements-test.txt` pins `pytest-homeassistant-custom-component`, which needs **Python ≥ 3.14** and therefore cannot be installed on a 3.13 interpreter — and it is not needed, because `tests/conftest.py` mocks Home Assistant anyway. What the suite really needs is `pytest` **and `aiohttp`**. 🪤 Without `aiohttp` the conftest mock stands in for it, `except aiohttp.ClientError` then catches a `MagicMock`, and **27 tests fail with `TypeError: catching classes that do not inherit from BaseException`** — an environment artefact that looks exactly like a broken error path in `api.py`. Install `aiohttp` and the suite is green (547 passed, 1 skipped, measured 2026-11-25).
 
 ## Tests and checks
 
