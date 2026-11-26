@@ -70,6 +70,7 @@ if importlib.util.find_spec("homeassistant") is None:
     sys.modules["homeassistant.helpers"] = MagicMock()
     sys.modules["homeassistant.helpers.aiohttp_client"] = MagicMock()
     sys.modules["homeassistant.helpers.device_registry"] = MagicMock()
+    sys.modules["homeassistant.helpers.entity_registry"] = MagicMock()
     sys.modules["homeassistant.helpers.entity_platform"] = MagicMock()
     sys.modules["homeassistant.helpers.entity"] = MagicMock()
     sys.modules["homeassistant.helpers.event"] = MagicMock()

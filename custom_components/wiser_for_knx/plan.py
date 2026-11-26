@@ -98,7 +98,7 @@ COMPOSITE_ROLES: dict[str, frozenset[str]] = {
     CAT_LOCK: frozenset({ROLE_LOCK_CONTROL, ROLE_LOCK_STATE}),
 }
 
-_COMPOSITE_PLATFORMS = {
+COMPOSITE_PLATFORMS = {
     CAT_LIGHT: PLATFORM_LIGHT,
     CAT_SWITCH: PLATFORM_SWITCH,
     CAT_COVER: PLATFORM_COVER,
@@ -196,7 +196,7 @@ def plan_entities(functions: dict[str, dict[str, Any]]) -> dict[str, list[dict]]
         roles = _roles(func)
         consumed: set[str] = set()
 
-        if category in _COMPOSITE_PLATFORMS and composite_is_viable(category, func):
+        if category in COMPOSITE_PLATFORMS and composite_is_viable(category, func):
             wanted = COMPOSITE_ROLES[category]
             consumed = {
                 dp_id
@@ -204,7 +204,7 @@ def plan_entities(functions: dict[str, dict[str, Any]]) -> dict[str, list[dict]]
                 if role in wanted and role not in DIAGNOSTIC_ROLES
             }
             add(
-                _COMPOSITE_PLATFORMS[category],
+                COMPOSITE_PLATFORMS[category],
                 {"function_id": func_id, "key": func_id},
             )
 

@@ -466,6 +466,7 @@ flowchart TB
 | `button.py` | **Create backup** and **Rescan devices** (both `EntityCategory.CONFIG`), plus one button per KNX scene number | scheduling | manual backup still available via the service; rescan and scene recall have no replacement |
 | `push.py` | the push subscription's whole life: the webhook Home Assistant answers on, the per-entry signing secret, verifying every frame, re-asserting the subscription, and switching the poll between its backstop and `scan_interval` | deciding *state* (that is the coordinator) and decoding a value (that is `datapoints.py`) | the integration polls every `scan_interval` and nothing else, which is exactly v0.8.0's behaviour |
 | `push_utils.py` | the pure parts of that: the `X-Callback-Signature` construction, the frame decode, the subscribe body, the secret, orphan matching | anything needing Home Assistant | — |
+| `diagnostics.py` / `diagnostics_utils.py` | the only read-only consumer of the whole graph: HA's **Download diagnostics** for an entry, assembling the entity and device registries, the coordinator's state and the entity plan into one payload, with every function's category and composite viability, every datapoint's archetype, role and platform, and the redaction that keeps password, user, host, MAC/serial and callback path out of a file users attach to issues. Pure half unit-tested | any decision — it reports the ones already taken, and writes nothing | the project loses its only way to see what an installation actually became; a report of a wrong entity goes back to being a screenshot |
 | `const.py` | every tunable and every KNX URN | behaviour | — |
 
 ### Explicitly not part of this system
@@ -766,6 +767,7 @@ Asymmetries on it:
 | `switch.py` | the function's datapoints, or one datapoint | `is_on`; writes `on`/`off` | coordinator |
 | `sensor.py` | backup manager state; health coordinator; one datapoint | `Last backup` (timestamp + attributes), 7 health sensors and 2 export counts (all `DIAGNOSTIC`), and a value per readable datapoint with a role-derived unit, device class and enum options | HA entity API |
 | `button.py` | — | two `CONFIG` buttons, plus one per scene number | coordinator / backup manager |
+| `diagnostics.py` | the entity and device registries, `hass.states`, the coordinator (data, `entity_plan`, poll state, health, push, backup manager), the entry's `data`/`options` | one JSON payload: `export` counts, `plan` counts, a `review` block (composites that were not viable, datapoints with no role or no title, unavailable/unknown/unnamed/`_2`-suffixed entities), then every function, datapoint and registry row — redacted | HA diagnostics API (on demand, never polled) |
 
 ---
 

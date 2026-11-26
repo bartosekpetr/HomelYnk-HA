@@ -106,6 +106,18 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=timedelta(seconds=update_interval),
         )
 
+    @property
+    def server_errors(self) -> int:
+        """Return how many polls in a row the controller answered with a 5xx."""
+        return self._server_errors
+
+    @property
+    def structure_age(self) -> int | None:
+        """Return the age in seconds of the cached locations and functions."""
+        if not self._static_fetched_at:
+            return None
+        return int(time.monotonic() - self._static_fetched_at)
+
     async def _async_refresh_static(self) -> None:
         """Fetch locations and functions into the cache (raises WiserKnx* errors)."""
         locations = await self.client.get_locations()

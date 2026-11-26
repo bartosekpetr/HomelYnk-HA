@@ -242,6 +242,33 @@ URL; fix that under **Settings** → **System** → **Network**, or turn *Instan
 
 **A shutter opens when you ask it to close.** KNX counts a shutter's position as how far it has travelled *down* (0 % = fully up), Home Assistant as how far it is *open*, so the integration inverts it. Actuators configured the other way round will read inverted; please open an issue with the group object's value at both end positions.
 
+**An entity has an odd name, or a device is a pile of sensors instead of one light.**
+Both are usually the integration following the controller rather than a fault, and the
+distinction is worth knowing before you rename anything:
+
+- **The name comes from KNX.** A channel the integration could not fold into a light, cover,
+  thermostat or lock gets its own entity, named after the **group object name in the Touch
+  widget** — whatever the installer typed, so `Obj 3` or `KNX 1/2/3` is entirely possible.
+  Renaming it in Home Assistant is safe and permanent: entities are keyed by an id that survives
+  renames, group-address changes and widget edits.
+- **One device, many entities, no main control.** The composite entity is only built when the
+  channels that drive it are writable — a dimmer whose brightness object has no status feedback,
+  for instance, cannot become a light, so the function degrades to plain entities instead of a
+  light that ignores every command. Check the widget against *A device or channel is missing*
+  above; the usual cause is a missing status feedback object.
+- **Unavailable** means the controller is not currently publishing that channel (or any of them,
+  see above). Nothing is ever deleted because a read failed, so entities come back by themselves.
+  **Unknown** means the channel is published but has never carried a value — normal for a scene
+  button, a trigger, or an object the bus has not reported yet.
+
+To report any of this: **Settings** → **Devices & services** → **Wiser for KNX** → the ⋮ menu →
+**Download diagnostics**, and attach the file to an issue. It lists every exported function and
+channel with the decision taken about it, next to the entity id, name and state each one became,
+which is the one thing a screenshot cannot show. The file deliberately contains **no** password,
+user name, controller address, MAC or serial, and no push callback path or signing secret. It
+*does* contain your KNX group object names, their current values and your room names, so read it
+before posting it in public.
+
 **An SE 8000 thermostat reads about 18 °C low.** That function type publishes every temperature through a Fahrenheit-to-Celsius conversion while still labelling it `C`. The integration undoes it on the way in and redoes it on the way out. This has been measured on the published values but **not** verified end to end against an SE 8000 setpoint on a real bus — if yours reads or sets wrongly, please open an issue.
 
 ---

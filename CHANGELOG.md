@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- **Download diagnostics now works for a Wiser for KNX entry.** The ⋮ menu on the
+  integration page produces a file listing every exported function and channel
+  with the decision the integration took about it — its category, whether the
+  composite entity was viable, each channel's type archetype, role and value —
+  next to the entity id, name and state each one became. It carries no password,
+  user name, controller address, MAC, serial or push callback path. This is what
+  to attach to an issue about an entity that looks wrong; see the README.
 - **The controller pushes changes now, and the poll stays on as the backstop.** The
   integration subscribes every exported datapoint to the controller's HTTP callback
   channel, so a change on the bus reaches Home Assistant in well under a second

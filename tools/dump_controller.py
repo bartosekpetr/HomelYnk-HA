@@ -51,6 +51,7 @@ for _mod in (
     "voluptuous",
     "homeassistant.helpers.event",
     "homeassistant.helpers.device_registry",
+    "homeassistant.helpers.entity_registry",
     "homeassistant.helpers.network",
     "homeassistant.components.webhook",
     "homeassistant.util",
