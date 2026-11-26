@@ -330,6 +330,13 @@ async def test_the_whole_payload_is_assembled_from_a_coordinator(monkeypatch):
     hass.data = {"wiser_for_knx": {entry.entry_id: coordinator}}
     hass.states.get.return_value = SimpleNamespace(state="on")
 
+    # The registry object is never read: both `async_entries_for_config_entry`
+    # calls are replaced below. Without a real Home Assistant the registry
+    # modules are stubs and `async_get` answers anyway; with one installed (CI)
+    # the real helper raises "Device registry not set up" against a mock hass.
+    registry = object()
+    monkeypatch.setattr(diagnostics.er, "async_get", lambda hass: registry)
+    monkeypatch.setattr(diagnostics.dr, "async_get", lambda hass: registry)
     monkeypatch.setattr(
         diagnostics.er,
         "async_entries_for_config_entry",
