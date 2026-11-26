@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.9.0-beta.1 - 2026-11-26
+
+A pre-release carrying the push channel and the diagnostics download. It is only
+offered by HACS if you have turned on beta versions for this repository.
+
+Both of the features below are new code paths that have never run inside a real
+Home Assistant — the test suite mocks Home Assistant, so what is verified is the
+decisions they take, not the wiring. Push can be turned off under **Configure**
+if it misbehaves, and every failure path in it falls back to the polling
+behaviour of 0.8.0.
+
 - **Download diagnostics now works for a Wiser for KNX entry.** The ⋮ menu on the
   integration page produces a file listing every exported function and channel
   with the decision the integration took about it — its category, whether the
