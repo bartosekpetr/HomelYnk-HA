@@ -1,13 +1,23 @@
 # Architecture
 
-Diagram current as of SMA-112 — 2026-11-25. **This is the first structural change since
-v0.8.0:** push exists. `push.py` and `push_utils.py` are new components, the controller gained
-an **inbound** edge to Home Assistant (edge 54, the first one in that direction), `manifest.json`
-declares `iot_class: local_push`, and the coordinator's poll is now two cadences rather than one.
-What did *not* change is the destination of every failure: the poll never stops, so every way push
-can break lands on the behaviour v0.8.0 already had. Both diagrams, the edge table, §3, §7 and §8
-were updated together; the previous revision's note (`0fc1359`, documentation and a privacy scrub
-with nothing under `custom_components/` changed) is superseded by this one.
+Diagram current as of `16941a8` — 2026-11-26. Kept current by the diagram-upkeep routine
+(SMA-213). **One correction, and it is to a transform on the load-bearing data path.** The
+previous revision shipped *inside* `16941a8` and dated itself by its task (SMA-112); resolving
+that to the commit it rode in shows its own range included `b7c69ae`, one commit earlier, which it
+did not fold in. `b7c69ae` put a **1 % floor** on the brightness write, so §4 item 11 and the
+brightness row in [§7](#7-failure-attribution) were still describing a bug that had already been
+fixed. Both are corrected, §4's diagram now says the write-path transform is *not* the read's
+inverse, and [§8](#8-confidence) carries the floor as its own row. Nothing structural moved in this
+revision: no component, no responsibility and no edge changed. Range checked: `03f3984..16941a8`,
+plus `32097d6` on `origin/main` (the v0.8.1-beta.1 pre-release — a CHANGELOG entry and a version
+bump, no behaviour).
+
+The revision before this one is where push arrived, and that remains the current shape:
+`push.py` and `push_utils.py` are components, the controller has an **inbound** edge to Home
+Assistant (edge 54, the only one in that direction), `manifest.json` declares `iot_class:
+local_push`, and the coordinator's poll has two cadences rather than one. What push did *not*
+change is the destination of every failure: the poll never stops, so every way push can break
+lands on the behaviour v0.8.0 already had.
 
 🔴 The honest line on it, repeated in [§8](#8-confidence) because it is the thing most likely to be
 mis-read: the **controller** side of push is measured, the **pure** half of the implementation is
@@ -527,7 +537,7 @@ flowchart TB
   E -->|"GATE 6: the plan is recomputed on every<br/>successful poll and new entities are added.<br/>Nothing is ever removed, because a<br/>missing datapoint means a failed read"| REG["entity registry"]
 
   E -->|"TRANSFORM: percent to 0-255 for brightness,<br/>100 minus position for a cover,<br/>F to C for fct.se8000"| HAST["HA state - read path"]
-  E -->|"TRANSFORM: the same, inverted"| WR["write value"]
+  E -->|"TRANSFORM: the same, inverted - except<br/>brightness FLOORS AT 1 percent,<br/>so the write is not the read's inverse"| WR["write value"]
 
   WR -->|"GATE 7: value replaced by the<br/>datapoint's own enum member, verbatim"| PUT["PUT /datapoints/values"]
   PUT -->|"GATE 8: 202 Accepted means<br/>WELL-FORMED, not APPLIED"| CTL["CONTROL group object"]
@@ -607,11 +617,15 @@ flowchart TB
     percentage is used as a percentage throughout. The 0–255 conversion in `light.py` is purely
     HA-side, between HA's brightness scale and the controller's percent.
 
-11. **That percent↔255 conversion is lossy in both directions, and truncating.**
-    `int(brightness/255*100)` on write and `int(percent/100*255)` on read. Consequences, from the
-    code: HA brightness 128 writes 50 % and reads back **127**; and HA brightness **1 or 2 truncate
-    to 0 %**, so asking a dimmer for its lowest brightness turns it off. Neither is a controller
-    behaviour.
+11. **That percent↔255 conversion is lossy in both directions, truncating, and the write is not
+    the read's inverse.** `int(percent/100*255)` on read; on write `int(brightness/255*100)`
+    **floored at 1 % for any non-zero brightness** (`b7c69ae`, v0.8.1-beta.1). Consequences, from
+    the code: HA brightness 128 writes 50 % and reads back **127**, and HA brightness 1 writes 1 %
+    and reads back **2** — so the bottom of the slider moves one step on its own. The floor is
+    there because the alternative was worse than a rounding artefact: 1 of 255 is 0.4 %, which
+    truncated to 0 %, and 0 % is *off*, so the end of the slider a user reaches for to dim a light
+    all the way turned it out instead. `turn_off` still writes a real 0 — the floor applies only to
+    a brightness the user asked for. None of this is controller behaviour.
 
 12. **Datapoint selection is by archetype, not by title or unit.** Each datapoint carries a
     `dic:dpa.*` archetype that identifies the Touch **slot** it came from, which nothing else in
@@ -821,7 +835,8 @@ controller.
 | `callbacks_rejected` climbing | a frame that failed verification | an unsigned, mis-signed or oversized POST reached the endpoint and was dropped without touching state. One or two around a re-assert is normal (a frame signed with the previous secret); a steady climb means something else is POSTing at the webhook |
 | A command does nothing, HA shows the new state anyway | the controller accepted and discarded it | 202 ≠ applied. Check the log for the `accepts only …` warning from `_enum_member`; if it is absent the value matched the enum and the write did reach the bus |
 | A command reaches the bus but the entity snaps back on the next poll | **not a fault** | the datapoint value is the *status* object. If no actuator bridges control → status, it will never follow. Optimistic state is the only honest option |
-| Brightness comes back one or two steps off what was set | the integration's percent↔255 truncation | HA 128 → 50 % → 127. HA 1–2 → 0 % → off |
+| Brightness comes back one or two steps off what was set | the integration's percent↔255 truncation | HA 128 → 50 % → 127, HA 1 → 1 % → 2. Lossy both ways and truncating; not a controller behaviour |
+| The faintest setting on the dimmer slider switches the light off | a version **before** v0.8.1-beta.1 | 1 of 255 is 0.4 %, which truncated to 0 %, and 0 % is off. Fixed in `b7c69ae`: any non-zero brightness now writes at least 1 %. On a current version, suspect the actuator's own minimum dim level instead |
 | Device names or rooms are wrong / stale | the Touch config, then the 1 h cache | `PUT /functions\|locations/attributes` answers 405, so the API `title` is an initial value only; rename in HA. `/locations` is flat with every `type: null`, so the room name is used directly as the suggested area and no floor hierarchy exists |
 | A device moves to a different area after a restart | the flat `/locations` list | `suggested_area` is re-derived from `schneider:parentLocationName` each time the device is created |
 | A backup fails with `Controller returned an invalid … backup` | the controller's answer, not the filesystem | HTTP 200 with a body that is not a readable ZIP (a JSON error, a login page). The response body *is* the archive, so it is parsed before it is stored, and the archive named in the message was **not** written. Never diagnose a stored archive by its size — the project archive grows with the trend data inside it, the entry count is the invariant |
@@ -893,6 +908,7 @@ controller.
 | Backup password rule | **measured** | controller returns 400 below it |
 | `/custom/deviceInfo`, `/flashsys/Status/SystemStatus` field names | **measured** | management-API probe; `health.py` parses the real payloads |
 | Light/switch control end to end, including the 202 | **measured** | real HA against a real controller |
+| The 1 % brightness floor reaches the controller as 1 % and `turn_off` still as 0 | **inferred from code**, unit-tested | `tests/test_platform_entities.py` pins 1 → 1, 128 → 50, 255 → 100 and `turn_off` → 0, and is red against the pre-`b7c69ae` conversion. No dimmer has been driven from a real Home Assistant since the change, so what an *actuator* does when asked for 1 % — dim to its own minimum, or ignore it — is unobserved |
 | `/.well-known/knx` returns an `api.base` | **observed-only** | the probe works; a controller actually *moving* its base has never been seen, and the regex guard has only been unit-tested |
 | HTTP 404 from a backup endpoint on the initial automatic backup | **observed-only** | seen exactly once; the button worked at the same time. Cause unknown |
 | `fct.se8000` F→C conversion on `dpt.valueTemp` | **measured**, but **not on this integration's path** | verified against an `se-thermostat` on the same group address. Only matters if climate returns |
