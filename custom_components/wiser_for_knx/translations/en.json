@@ -81,8 +81,9 @@
     "step": {
       "init": {
         "title": "Wiser for KNX Options",
-        "description": "Configure polling and controller backups. Backup password set: {backup_set}. Leave the password empty to keep the current one. The controller requires at least 8 characters with an uppercase letter, a lowercase letter and a digit.",
+        "description": "Configure updates and controller backups. Backup password set: {backup_set}. Leave the password empty to keep the current one. The controller requires at least 8 characters with an uppercase letter, a lowercase letter and a digit.",
         "data": {
+          "push": "Instant updates (push)",
           "scan_interval": "Polling Interval (seconds)",
           "backup_password": "Backup password",
           "backup_interval_hours": "Automatic backup interval (hours, 0 = off)",
@@ -92,6 +93,8 @@
           "skip_verify": "Skip certificate verification (insecure)"
         },
         "data_description": {
+          "push": "Leave on. The controller then sends every datapoint change to Home Assistant as it happens, instead of being asked every few seconds, and the polling interval below becomes a slow safety net. Polling never stops: the controller gives no sign when it quietly stops sending, so the integration checks for itself and goes back to full-speed polling if that happens. Watch the controller's “Push” sensor to see which is in use. Turn this off to poll only.",
+          "scan_interval": "How often the controller is asked for every datapoint value. With instant updates working this slows to a few minutes on its own and only this value is used when they are not.",
           "port": "The controller port, 1 to 65535. Switching plain HTTP on or off changes a port left at 443 or 80 to the matching default (80 or 443); any other port is kept as entered.",
           "plain_http": "Leave off. With this on, the controller username and password, and the backup password, are sent unencrypted and can be read by anyone on your network. Only turn it on if the controller cannot serve HTTPS.",
           "skip_verify": "Off is recommended. Turning it on removes any trusted certificate fingerprint. Turning it off again re-checks the certificate and asks you to confirm its fingerprint if it is self-signed."

@@ -15,8 +15,11 @@ from .const import (
     COLLECTION_RETRY_BACKOFF,
     DEFAULT_API_BASE,
     MGMT_API_BASE,
+    SUBSCRIBE_PATH,
+    SUBSCRIPTIONS_PATH,
 )
 from .health import parse_health
+from .push_utils import subscribe_body, subscription_id_from_response
 from .tls import fingerprint_bytes
 
 _LOGGER = logging.getLogger(__name__)
@@ -427,6 +430,90 @@ class WiserKnxClient:
                 "types": meta.get("@type", []),
             }
         return datapoints
+
+    async def async_subscribe_datapoints(
+        self, datapoint_ids: list[str], url: str, secret: str
+    ) -> str:
+        """Register a push subscription and return its id.
+
+        `POST {api_base}/subscribe`, 200 with the subscription object. All three
+        `meta` fields are required. A plain `http://` callback url is accepted by
+        this firmware against its own spec, which is what makes push reachable
+        for a Home Assistant install with no TLS endpoint.
+
+        Nothing about the body is logged: it carries the signing secret.
+        """
+        session = await self._get_session()
+        url_str = f"{self.base_url}{self.api_base}/{SUBSCRIBE_PATH}"
+        try:
+            async with session.post(
+                url_str,
+                json=subscribe_body(datapoint_ids, url, secret),
+                headers=self._get_headers(),
+                auth=self._get_auth(),
+                timeout=aiohttp.ClientTimeout(total=30),
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise WiserKnxAuthError("Unauthorized creating a push subscription")
+                if resp.status >= 500:
+                    raise WiserKnxServerError(f"{url_str} returned HTTP {resp.status}")
+                if resp.status not in (200, 201, 202):
+                    raise WiserKnxConnectionError(
+                        f"{url_str} returned HTTP {resp.status}"
+                    )
+                body = await resp.json(content_type=None)
+        except aiohttp.ClientError as err:
+            raise _connection_error(
+                f"Push subscription request to {url_str} failed: {err}", err
+            ) from err
+        except TimeoutError as err:
+            raise WiserKnxConnectionError(
+                f"Push subscription request to {url_str} timed out"
+            ) from err
+        except ValueError as err:
+            raise WiserKnxConnectionError(
+                f"Invalid JSON from {url_str}: {err}"
+            ) from err
+        subscription_id = subscription_id_from_response(body)
+        if not subscription_id:
+            raise WiserKnxConnectionError(
+                "The controller accepted the subscription but returned no id"
+            )
+        return subscription_id
+
+    async def async_list_subscriptions(self) -> list[dict[str, Any]]:
+        """Return the subscriptions the controller currently holds."""
+        return await self._async_get_items_once(SUBSCRIPTIONS_PATH)
+
+    async def async_delete_subscription(self, subscription_id: str) -> bool:
+        """Delete a push subscription; True when the controller confirms it is gone.
+
+        204 is the documented answer and 404 counts as success, because a record
+        that is already absent is the state the caller wanted.
+        """
+        session = await self._get_session()
+        url = f"{self.base_url}{self.api_base}/{SUBSCRIPTIONS_PATH}/{subscription_id}"
+        try:
+            async with session.delete(
+                url,
+                headers=self._get_headers(),
+                auth=self._get_auth(),
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status in (401, 403):
+                    raise WiserKnxAuthError("Unauthorized deleting a push subscription")
+                if resp.status in (200, 202, 204, 404):
+                    return True
+                _LOGGER.warning(
+                    "Deleting push subscription %s returned HTTP %s",
+                    subscription_id,
+                    resp.status,
+                )
+                return False
+        except aiohttp.ClientError as err:
+            raise _connection_error(f"Request to {url} failed: {err}", err) from err
+        except TimeoutError as err:
+            raise WiserKnxConnectionError(f"Request to {url} timed out") from err
 
     async def _async_mgmt_get(self, path: str) -> dict[str, Any]:
         """GET a management API path and return its `data` object."""

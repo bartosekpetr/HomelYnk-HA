@@ -1,15 +1,28 @@
 # Architecture
 
-Diagram current as of 0fc1359 — 2026-11-25. Checked `78fa70f..0fc1359`: **nothing** under
-`custom_components/`, `manifest.json`, `hacs.json` or `.github/` changed in that range, so every
-component, responsibility and edge still holds and both diagrams are untouched. The range is two
-documentation commits plus a privacy scrub (the owner's real controller address replaced with the
-`192.168.1.x` placeholder in two tests and two tool docstrings), and `0fc1359` already carried its
-own two new measurements into [§8](#8-confidence): the `apit3` component split and the plaintext
-callback secret. One row was added to [§7](#7-failure-attribution) to finish that job — the
-attribution table had no entry for a **stopped export daemon**, which is the third cause of "a
-widget configured in Touch has no HA device" and the only one of the three with no in-band
-detector.
+Diagram current as of `16941a8` — 2026-11-26. Kept current by the diagram-upkeep routine
+(SMA-213). **One correction, and it is to a transform on the load-bearing data path.** The
+previous revision shipped *inside* `16941a8` and dated itself by its task (SMA-112); resolving
+that to the commit it rode in shows its own range included `b7c69ae`, one commit earlier, which it
+did not fold in. `b7c69ae` put a **1 % floor** on the brightness write, so §4 item 11 and the
+brightness row in [§7](#7-failure-attribution) were still describing a bug that had already been
+fixed. Both are corrected, §4's diagram now says the write-path transform is *not* the read's
+inverse, and [§8](#8-confidence) carries the floor as its own row. Nothing structural moved in this
+revision: no component, no responsibility and no edge changed. Range checked: `03f3984..16941a8`,
+plus `32097d6` on `origin/main` (the v0.8.1-beta.1 pre-release — a CHANGELOG entry and a version
+bump, no behaviour).
+
+The revision before this one is where push arrived, and that remains the current shape:
+`push.py` and `push_utils.py` are components, the controller has an **inbound** edge to Home
+Assistant (edge 54, the only one in that direction), `manifest.json` declares `iot_class:
+local_push`, and the coordinator's poll has two cadences rather than one. What push did *not*
+change is the destination of every failure: the poll never stops, so every way push can break
+lands on the behaviour v0.8.0 already had.
+
+🔴 The honest line on it, repeated in [§8](#8-confidence) because it is the thing most likely to be
+mis-read: the **controller** side of push is measured, the **pure** half of the implementation is
+unit-tested, and the **Home Assistant** half has never run. No Home Assistant has yet received a
+callback from a controller.
 
 Subject: the `wiser_for_knx` custom integration and the whole path between Home Assistant and
 a Wiser for KNX controller — config flow and options, the coordinators, the API client, the
@@ -124,7 +137,17 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |                          | api_base regex-guarded     |     +--------+---------+    |
  |                          | TLS mode fixed per client  |              |              |
  |                          +------------+---------------+              |              |
- |                                       | (40..48)                     | (49)         |
+ |                                       | (40..48, 53)                 | (49)         |
+ |   +-------------------------------------------------------------+                   |
+ |   |                         push.py  (53..56)                   |                   |
+ |   | WiserKnxPushManager: owns the subscription, the webhook HA   |                   |
+ |   | answers on, the signing secret and the fallback to polling.  |                   |
+ |   | A frame: verify X-Callback-Signature -> filter by datapoint  |                   |
+ |   | id -> coordinator.async_apply_push_values -> listeners.      |                   |
+ |   | THE POLL NEVER STOPS: 300 s while callbacks arrive,          |                   |
+ |   | scan_interval the moment they do not (push fails SILENT).    |                   |
+ |   | push_utils.py: signature, frame decode, subscribe body (pure)|                   |
+ |   +-------------------------------------------------------------+                   |
  |   const.py (39) supplies every constant above; identity.py (31) the stable ids;     |
  |   backup_utils.py (37) the pure password / filename / prune / ZIP-parse helpers     |
  +=======================================|==============================|=============+
@@ -142,9 +165,11 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |    GET /datapoints           (43)  THE WHOLE ENTITY GRAPH, one request;             |
  |                                    meta["@type"] also = dic:dpa.* -> widget slot    |
  |    PUT /datapoints/values    (44)  answers 202 Accepted before deciding             |
- |    NOT USED (53): POST /subscribe + DELETE /subscriptions/{id} - MEASURED to work,  |
- |                   never opened by this integration                                  |
- |                   GET /messaging/ws - 404 on this firmware: the path DOES NOT       |
+ |    POST /subscribe           (53)  registers the HTTP callback; meta.url/secret/type|
+ |    GET  /subscriptions       (53a) listed to find this entry's orphans              |
+ |    DELETE /subscriptions/{id}(53b) on unload, and before every re-assert            |
+ |    ---> POST to HA's webhook (54)  the ONLY inbound edge; signed, see below         |
+ |    NOT USED: GET /messaging/ws - 404 on this firmware: the path DOES NOT            |
  |                   EXIST, however fully the spec describes it                        |
  |                   /sites, /node, /devices, /installations, bulk + project writes,   |
  |                   PUT /functions|locations/attributes                               |
@@ -232,8 +257,14 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 50 | Touch config | 3rd Party API | gated and asynchronous; see §4 |
 | 51 | datapoint write | CONTROL group object → KNX bus → actuator | write direction |
 | 52 | STATUS group object | datapoint value | read direction; may never follow 51 |
-| 53 | push API: `POST /subscribe`, `DELETE /subscriptions/{id}` | — | **never opened by this integration**, but no longer unmeasured: the skillset's rig drove both end to end on 2026-11-22 and callbacks were delivered. See §8 |
-| 53a | `GET /messaging/ws` | — | **not an edge at all**: 404 on this firmware in every form tried. The spec describes it; the controller does not serve it |
+| 53 | `push.WiserKnxPushManager` | `POST {api_base}/subscribe` | write; registers the callback URL, a fresh per-entry secret and every exported datapoint id. Re-asserted on startup, when the exported set grows, after delivery stops, and on a slow beat |
+| 53a | `push` | `GET {api_base}/subscriptions` | read; **orphan reconciliation only** — a record whose callback *path* is this entry's is deleted before a new one is made |
+| 53b | `push` | `DELETE {api_base}/subscriptions/{id}` | write; on unload, on reload and before every re-assert. A record left behind makes the controller POST at a dead listener for ever |
+| 54 | controller delivery daemon | HA webhook → `push._async_handle_callback` | **inbound, and the only edge that crosses the boundary in that direction.** Unauthenticated by necessity (the controller speaks HTTP Basic, not HA auth), so the gate is `X-Callback-Signature` + `local_only`. Always answers 200 |
+| 55 | `push` | `coordinator.async_apply_push_values` | per frame; patches the value and notifies listeners. **Never** `async_set_updated_data`, which would reset the poll timer |
+| 56 | `coordinator._check_push_delivery` | `push.async_delivery_stopped` | the liveness signal, and the only one that exists: a backstop poll finding values no callback reported |
+| 57 | `push` | `coordinator.async_set_push_cadence` | switches the poll between the 300 s backstop and `scan_interval`. Never switches it off |
+| 58 | `GET /messaging/ws` | — | **not an edge at all**: 404 on this firmware in every form tried. The spec describes it; the controller does not serve it |
 
 ---
 
@@ -265,10 +296,12 @@ flowchart TB
     subgraph INT["custom_components/wiser_for_knx"]
       CF["config_flow.py<br/>user, zeroconf, dhcp,<br/>credentials, trust_certificate,<br/>backup, options, reauth"]
       INIT["__init__.py<br/>migrate, setup, unload,<br/>service, deletes no entity,<br/>initial-backup task"]
-      COORD["coordinator.py<br/>datapoints every 10 s<br/>static cache 1 h / retry 5 min / die 3 h<br/>enum-verbatim writes<br/>optimistic local state"]
+      COORD["coordinator.py<br/>datapoints every scan_interval,<br/>300 s while push delivers<br/>static cache 1 h / retry 5 min / die 3 h<br/>enum-verbatim writes<br/>optimistic local state<br/>a poll finding what push did not reported it dead"]
       HCOORD["health coordinator<br/>5 min, best effort"]
       BM["backup.py<br/>manager, lock, schedule, prune<br/>ZIP gate then temp, 0600, rename<br/>plus HA pre/post backup hooks"]
       APIC["api.py WiserKnxClient<br/>the only aiohttp caller<br/>5xx retried 3x<br/>api_base regex-guarded"]
+      PM["push.py WiserKnxPushManager<br/>webhook, per-entry secret,<br/>verify every frame,<br/>re-assert, orphan reconcile,<br/>switches the poll cadence"]
+      PU["push_utils.py<br/>signature, frame decode,<br/>subscribe body (pure)"]
       TLSM["tls.py<br/>fingerprint pin, fetch, format"]
       IDM["identity.py<br/>MAC / serial, v1 id migration"]
       WID["widgets.py<br/>function URN to category"]
@@ -293,7 +326,7 @@ flowchart TB
   subgraph CTRL["Wiser for KNX controller - not ours"]
     WK["GET /.well-known/knx<br/>unauthenticated, returns api.base"]
     TP["3rd Party API /api/w4knx/3rdparty/v1<br/>GET /locations, /functions, /datapoints<br/>PUT /datapoints/values"]
-    PUSH["Push API: POST /subscribe,<br/>DELETE /subscriptions/id<br/>measured to work, NEVER OPENED here"]
+    PUSH["Push API: POST /subscribe,<br/>GET and DELETE /subscriptions/id<br/>plus the delivery daemon that POSTs back"]
     WS["GET /messaging/ws<br/>in the spec, 404 on this firmware:<br/>NOT SERVED at all"]
     MG["Management API /api/management/v1<br/>GET /custom/deviceInfo<br/>GET /flashsys/Status/SystemStatus<br/>POST backupConfiguration<br/>POST scada-main/general/backup<br/>backup body IS the archive, no envelope"]
     EXPORT["Export engine<br/>gated and asynchronous"]
@@ -384,7 +417,14 @@ flowchart TB
   APIC -->|"reads and writes"| TP
   APIC -->|"health and backups"| MG
   TLSM -->|"raw TLS handshake, no credentials"| CTRL
-  APIC -.->|"never called"| PUSH
+  APIC -->|"subscribe, list, delete"| PUSH
+  PM --> APIC
+  PM --> PU
+  PM -->|"verified frame:<br/>patch value, notify listeners.<br/>NEVER resets the poll timer"| COORD
+  COORD -->|"a change no callback reported"| PM
+  INIT --> PM
+  PM --> SE
+  PUSH ==>|"POST signed callback;<br/>THE ONLY INBOUND EDGE.<br/>unauthenticated by necessity,<br/>gated by X-Callback-Signature"| PM
   APIC -.->|"never called, and<br/>there is nothing to call"| WS
 
   TOUCH --> EXPORT
@@ -424,6 +464,8 @@ flowchart TB
 | `select.py` / `number.py` | the generic fallbacks for a writable enum and a writable number, so no exported control is invisible | role semantics | anything not modelled by a richer platform becomes read-only |
 | `sensor.py` | a sensor per readable datapoint (units and device classes from the role, never from the controller's own unit string), the seven controller-health sensors, the **Last backup** sensor, and the exported function/datapoint counts | fetching anything | every reading the controller publishes becomes invisible, and so does the controller's own state |
 | `button.py` | **Create backup** and **Rescan devices** (both `EntityCategory.CONFIG`), plus one button per KNX scene number | scheduling | manual backup still available via the service; rescan and scene recall have no replacement |
+| `push.py` | the push subscription's whole life: the webhook Home Assistant answers on, the per-entry signing secret, verifying every frame, re-asserting the subscription, and switching the poll between its backstop and `scan_interval` | deciding *state* (that is the coordinator) and decoding a value (that is `datapoints.py`) | the integration polls every `scan_interval` and nothing else, which is exactly v0.8.0's behaviour |
+| `push_utils.py` | the pure parts of that: the `X-Callback-Signature` construction, the frame decode, the subscribe body, the secret, orphan matching | anything needing Home Assistant | — |
 | `const.py` | every tunable and every KNX URN | behaviour | — |
 
 ### Explicitly not part of this system
@@ -442,14 +484,14 @@ flowchart TB
   values must stay out of entities, attributes and any future diagnostics: the BACnet settings'
   `Password` field, and the **service tag** `custom/deviceInfo` returns (`health.parse_health`
   publishes neither; see [§8](#8-confidence) for what is still unresolved about that field).
-- **No push / subscription path.** `manifest.json` declares `iot_class: local_polling`; all
-  freshness comes from polling, and nothing here opens a subscription. What changed on 2026-11-22
-  is only the *knowledge*: the protocol was measured outside this repo, and the two routes are not
-  the pair the spec implies. `POST /subscribe` + `DELETE /subscriptions/{id}` work and deliver;
-  `GET /messaging/ws` **answers 404 on this firmware in every form tried** — it is specified and
-  not served. So the websocket is not "the harder option", it is not an option. The measured
-  protocol and its four traps are in [§8](#8-confidence); adopting any of it is SMA-112 and has not
-  started.
+- **No WebSocket.** `GET /messaging/ws` **answers 404 on this firmware in every form tried** — it
+  is specified and not served, so the websocket is not "the harder option", it is not an option.
+  Do not write a frame encoder for it; re-probe after a firmware update instead of assuming it
+  stays absent. The *other* route is no longer absent from this system: `POST /subscribe` is
+  implemented in `push.py`, on by default, and `manifest.json` now declares `iot_class:
+  local_push`. **Polling did not go away** — it is the backstop, because push fails silent and
+  nothing on the controller restarts the daemon that delivers it. The protocol and its traps are
+  in [§8](#8-confidence) and [docs/controller-api.md](controller-api.md) §3.
 - **No scenes, schedulers or automations from the controller's own engine.** They exist on the
   LogicMachine side (Configurator `scenes`, `schedulers`, the automation plugin) and the 3rd-party
   API does not expose them — all of those paths answer 404 locally. A KNX `fct.scene` *function*
@@ -495,7 +537,7 @@ flowchart TB
   E -->|"GATE 6: the plan is recomputed on every<br/>successful poll and new entities are added.<br/>Nothing is ever removed, because a<br/>missing datapoint means a failed read"| REG["entity registry"]
 
   E -->|"TRANSFORM: percent to 0-255 for brightness,<br/>100 minus position for a cover,<br/>F to C for fct.se8000"| HAST["HA state - read path"]
-  E -->|"TRANSFORM: the same, inverted"| WR["write value"]
+  E -->|"TRANSFORM: the same, inverted - except<br/>brightness FLOORS AT 1 percent,<br/>so the write is not the read's inverse"| WR["write value"]
 
   WR -->|"GATE 7: value replaced by the<br/>datapoint's own enum member, verbatim"| PUT["PUT /datapoints/values"]
   PUT -->|"GATE 8: 202 Accepted means<br/>WELL-FORMED, not APPLIED"| CTL["CONTROL group object"]
@@ -575,11 +617,15 @@ flowchart TB
     percentage is used as a percentage throughout. The 0–255 conversion in `light.py` is purely
     HA-side, between HA's brightness scale and the controller's percent.
 
-11. **That percent↔255 conversion is lossy in both directions, and truncating.**
-    `int(brightness/255*100)` on write and `int(percent/100*255)` on read. Consequences, from the
-    code: HA brightness 128 writes 50 % and reads back **127**; and HA brightness **1 or 2 truncate
-    to 0 %**, so asking a dimmer for its lowest brightness turns it off. Neither is a controller
-    behaviour.
+11. **That percent↔255 conversion is lossy in both directions, truncating, and the write is not
+    the read's inverse.** `int(percent/100*255)` on read; on write `int(brightness/255*100)`
+    **floored at 1 % for any non-zero brightness** (`b7c69ae`, v0.8.1-beta.1). Consequences, from
+    the code: HA brightness 128 writes 50 % and reads back **127**, and HA brightness 1 writes 1 %
+    and reads back **2** — so the bottom of the slider moves one step on its own. The floor is
+    there because the alternative was worse than a rounding artefact: 1 of 255 is 0.4 %, which
+    truncated to 0 %, and 0 % is *off*, so the end of the slider a user reaches for to dim a light
+    all the way turned it out instead. `turn_off` still writes a real 0 — the floor applies only to
+    a brightness the user asked for. None of this is controller behaviour.
 
 12. **Datapoint selection is by archetype, not by title or unit.** Each datapoint carries a
     `dic:dpa.*` archetype that identifies the Touch **slot** it came from, which nothing else in
@@ -783,9 +829,14 @@ controller.
 | …and both its slots and `disable_export` are right, and the API keeps answering 200 | the controller's **export daemon**, and there is nothing here to detect it | the function/datapoint graph is a cache that `apit3`'s daemon regenerates when the Touch config CRC changes, and nothing on the controller supervises that daemon. With it stopped the whole REST surface still answers 200 with live values and **no new widget ever appears** — because the half that answers requests is nginx-embedded Lua with no process of its own, while the half that maintains the export is the daemon ([§8](#8-confidence)). So a frozen export is indistinguishable from a complete one from inside Home Assistant and **no detector should be added**; the fix is controller-side, and neither a reboot nor an app update is a reliable one |
 | A new widget appears in the API but gets no entity | the controller's export latency, then the integration | since v0.8.0 every platform adds what the plan grew on each poll, so a new device appears within one poll of its *datapoints* being published. A function with no datapoints yet produces nothing, by design |
 | A 6-gang switch shows one entity instead of six | the integration, if it ever stops enumerating | channel fan-out is 1:N; grouping must be by `schneider:parentFunction`, never by widget id, and must not stop at the first match |
+| Entity state lags the bus by minutes, and the **Push** sensor says `live` | the delivery daemon stopping *between* backstop polls | push has no in-band liveness signal at all, so the backstop poll is the probe: `live` only means a callback arrived at some point and no poll has caught a missed change since. A poll finding two changed values no callback reported flips it to `degraded` and puts the poll back on `scan_interval`. Worst-case lag is therefore one backstop interval (300 s), not forever |
+| The **Push** sensor says `pending` and `callbacks_received` stays 0 | the controller cannot reach Home Assistant's URL | the subscription was accepted — that is what `pending` means — but nothing is being delivered. Check that HA's **internal** URL is one the controller can reach (the callback is registered against it) and that nothing between them drops the POST. Polling is at the configured interval throughout, so this costs freshness and nothing else |
+| The **Push** sensor says `unavailable` | the registration, not the delivery | the `reason` attribute names which step failed: no reachable HA URL, no datapoints exported yet, or the controller refusing `POST /subscribe`. It is retried with backoff for as long as the entry is loaded |
+| `callbacks_rejected` climbing | a frame that failed verification | an unsigned, mis-signed or oversized POST reached the endpoint and was dropped without touching state. One or two around a re-assert is normal (a frame signed with the previous secret); a steady climb means something else is POSTing at the webhook |
 | A command does nothing, HA shows the new state anyway | the controller accepted and discarded it | 202 ≠ applied. Check the log for the `accepts only …` warning from `_enum_member`; if it is absent the value matched the enum and the write did reach the bus |
 | A command reaches the bus but the entity snaps back on the next poll | **not a fault** | the datapoint value is the *status* object. If no actuator bridges control → status, it will never follow. Optimistic state is the only honest option |
-| Brightness comes back one or two steps off what was set | the integration's percent↔255 truncation | HA 128 → 50 % → 127. HA 1–2 → 0 % → off |
+| Brightness comes back one or two steps off what was set | the integration's percent↔255 truncation | HA 128 → 50 % → 127, HA 1 → 1 % → 2. Lossy both ways and truncating; not a controller behaviour |
+| The faintest setting on the dimmer slider switches the light off | a version **before** v0.8.1-beta.1 | 1 of 255 is 0.4 %, which truncated to 0 %, and 0 % is off. Fixed in `b7c69ae`: any non-zero brightness now writes at least 1 %. On a current version, suspect the actuator's own minimum dim level instead |
 | Device names or rooms are wrong / stale | the Touch config, then the 1 h cache | `PUT /functions\|locations/attributes` answers 405, so the API `title` is an initial value only; rename in HA. `/locations` is flat with every `type: null`, so the room name is used directly as the suggested area and no floor hierarchy exists |
 | A device moves to a different area after a restart | the flat `/locations` list | `suggested_area` is re-derived from `schneider:parentLocationName` each time the device is created |
 | A backup fails with `Controller returned an invalid … backup` | the controller's answer, not the filesystem | HTTP 200 with a body that is not a readable ZIP (a JSON error, a login page). The response body *is* the archive, so it is parsed before it is stored, and the archive named in the message was **not** written. Never diagnose a stored archive by its size — the project archive grows with the trend data inside it, the entry count is the invariant |
@@ -857,6 +908,7 @@ controller.
 | Backup password rule | **measured** | controller returns 400 below it |
 | `/custom/deviceInfo`, `/flashsys/Status/SystemStatus` field names | **measured** | management-API probe; `health.py` parses the real payloads |
 | Light/switch control end to end, including the 202 | **measured** | real HA against a real controller |
+| The 1 % brightness floor reaches the controller as 1 % and `turn_off` still as 0 | **inferred from code**, unit-tested | `tests/test_platform_entities.py` pins 1 → 1, 128 → 50, 255 → 100 and `turn_off` → 0, and is red against the pre-`b7c69ae` conversion. No dimmer has been driven from a real Home Assistant since the change, so what an *actuator* does when asked for 1 % — dim to its own minimum, or ignore it — is unobserved |
 | `/.well-known/knx` returns an `api.base` | **observed-only** | the probe works; a controller actually *moving* its base has never been seen, and the regex guard has only been unit-tested |
 | HTTP 404 from a backup endpoint on the initial automatic backup | **observed-only** | seen exactly once; the button worked at the same time. Cause unknown |
 | `fct.se8000` F→C conversion on `dpt.valueTemp` | **measured**, but **not on this integration's path** | verified against an `se-thermostat` on the same group address. Only matters if climate returns |
@@ -867,9 +919,12 @@ controller.
 | `POST /subscribe` + `DELETE /subscriptions/{id}` work, and a plain `http://` callback is accepted and genuinely delivered | **measured** | same round. The spec says the callback `url` must be HTTPS; the controller stores the scheme intact and delivers to it anyway — which is what makes push reachable for an ordinary HA install, at the price of values and signature crossing the LAN in clear text. `DELETE` → 204, proven by re-driving the bus and recording silence |
 | The callback payload reuses the existing decoder: JSON:API, one datapoint per POST, `value` **always a string**, same engineering units as `GET /datapoints`, `timestamp` real ISO-8601 UTC | **measured** | same round. The subscription silently includes the two automation-trigger virtuals, so a consumer must filter inbound by datapoint id |
 | `X-Callback-Signature` = `base64(lowercase_hex(HMAC-SHA256(secret, msg)))` over `"POST " + path + " HTTP/1.1" + authority + Date + len(body) + body` | **measured** | same round. Two traps in one row: it is base64 **of the ASCII hex**, not of the digest; and the `Date` header must be fed in **verbatim** — it is local time mislabelled `GMT`, an hour off the payload's own UTC timestamp, so parsing or re-rendering it breaks the HMAC and it is not a usable clock. The construction is not an inference from the frames: it was read instruction-by-instruction off the delivery daemon's stripped LuaJIT bytecode and then matched against live frames **2 of 2 exactly**. Delivery itself still has a single witness (our own listener); the signature no longer has none |
-| The callback `secret` is a signing key the controller stores in **plaintext** | **measured 2026-11-22** | it sits in Redis under `meta.secret` beside the callback URL, readable by anything with a root shell or on-box Lua, and it is never echoed back to the subscriber. So a valid `X-Callback-Signature` proves the frame was not tampered with in flight — worth having, because the channel may be plain HTTP — and does **not** prove origin. The consequences for a future SMA-112 (fresh random secret per entry, never reused, never logged) are in [docs/controller-api.md](controller-api.md) §3b |
+| The callback `secret` is a signing key the controller stores in **plaintext** | **measured 2026-11-22** | it sits in Redis under `meta.secret` beside the callback URL, readable by anything with a root shell or on-box Lua, and it is never echoed back to the subscriber. So a valid `X-Callback-Signature` proves the frame was not tampered with in flight — worth having, because the channel may be plain HTTP — and does **not** prove origin. The consequences are implemented: a fresh `secrets.token_urlsafe(32)` per config entry, regenerated on every re-assert, never logged and absent from the diagnostic sensor's attributes ([docs/controller-api.md](controller-api.md) §3b–3c) |
 | A callback is a **state notification, not an event**, and push **fails silent** | **measured** | changes to one datapoint closer than ~0.8 s are coalesced to the latest value (8 transitions at 0.4 s delivered 4) — so never count edges or reconstruct a sequence; and with the delivery daemon killed the subscription stays listed and the whole REST surface keeps answering 200 while nothing is delivered indefinitely. At 1 Hz neither shows up, so casual testing will not find them. This is why **polling must stay** as a backstop with a full re-read on reconnect |
-| All six push rows above | **measured outside this repo** | by the skillset's `push_lab.py` / `push.md` (private, `63f6ace`, 2026-11-22; the signature and secret-storage rows re-stated in its architecture revision `f2bce62`, 2026-11-23), summarised in this repo's `AGENTS.md` §6. Nothing in this repository has ever opened a subscription, and no Home Assistant has ever received a callback. The rows describe a *controller* contract that a future SMA-112 would have to implement against — they are not evidence about any code here |
+| All six push rows above | **measured outside this repo** | by the skillset's `push_lab.py` / `push.md` (private, `63f6ace`, 2026-11-22; the signature and secret-storage rows re-stated in its architecture revision `f2bce62`, 2026-11-23), summarised in this repo's `AGENTS.md` §6. They describe a *controller* contract — they are evidence about the controller, never about the code here |
+| `push.py` / `push_utils.py` implement that contract correctly | **split** | the **pure half is unit-tested**: `tests/test_push_utils.py` pins the signed byte string, the base64-of-ASCII-hex encoding, the verbatim `Date` and the frame decode against the measured frame shape, and `tests/test_push_coordinator.py` covers applying a callback, the cadence switch and the liveness decision. The **Home Assistant half has never run**: the webhook registration, the URL resolution, the watchdog, the re-assert and the unload-time delete are **inferred from code**, like everything else HA-runtime in this table. No Home Assistant has yet received a callback from a controller |
+| A frame the integration refuses never reaches entity state | **inferred from code**, unit-tested | an unsigned, mis-signed or oversized frame is counted and dropped before `async_apply_push_values` is reached, and a datapoint id the last poll did not return is ignored. The endpoint answers 200 either way: what the delivery daemon does with a non-200 is **not measured**, so provoking it is not worth the diagnostic |
+| Push degrading always lands on working polling | **inferred from code** | every failure path — no reachable HA URL, a refused `POST /subscribe`, a callback that never arrives, delivery stopping mid-run — calls `async_set_push_cadence(False)` and leaves the coordinator on `scan_interval`, which is what the integration did before push existed. Reasoned from the code and from the fact that the poll is never cancelled, **not** demonstrated in a real Home Assistant |
 | Every other spec path (`/sites`, `/node`, `/devices`, `/installations`, bulk and project writes, `POST`/`PUT /locations`) | **inferred from the spec only** | never called by this integration, never probed |
 | Edge 1: HACS offers an update only from a published, non-draft, non-pre-release release | **observed-only** | v0.8.0 was tagged and pushed on 2026-11-22 and HACS offered nothing until the release was published; v0.7.0-beta.1/.2 were published *as* pre-releases and are invisible by default. Seen happening, not deliberately tested, and never bisected against HACS's own source |
 | The certificate-changed reauth card is raised on a real installation | **observed-only** | owner-confirmed 2026-11-22: a controller presenting a different certificate than the pinned one produced the **"Controller certificate changed"** card with the new and previously trusted fingerprints, exactly as the code draws it. **Submitting** that card — `async_update_reload_and_abort`, entry and entity ids preserved — is still **inferred from code**: the owner removed and re-added the entry instead, so that branch has never been run |
@@ -878,12 +933,18 @@ controller.
 
 ### Never probed
 
-- The push/subscription path **from inside Home Assistant**. The controller side is measured (see
-  the rows above); what has never existed is an HA-side implementation — no callback endpoint, no
-  signature verifier, no liveness timeout, no re-assertion on startup. If it is ever adopted,
-  `iot_class` changes from `local_polling` and gates 5 and 6 above change shape entirely.
-- What a subscription does across a **controller reboot**. Deliberately not measured: the unit runs
-  a live house. Depend on neither outcome.
+- The push path **from inside a running Home Assistant**. The controller side is measured and the
+  HA-side code now exists (`push.py`: callback endpoint, signature verifier, liveness check,
+  re-assertion, unload-time delete), but **no Home Assistant has yet received a callback from a
+  controller**. Until one has, every claim about the registration, the watchdog and the unload path
+  is read off the code. What to ask for when it is first run: the **Push** sensor's state and
+  attributes, and whether entity state still tracks the bus.
+- What a subscription does across a **controller reboot**, whether a re-subscribe replaces or
+  duplicates a record, and whether there is any cap on datapoints per subscribe body. All three
+  deliberately not measured — the unit runs a live house — and the code depends on no answer to
+  any of them: a re-assert always deletes before it creates, the whole datapoint set goes in one
+  body with batching only as a fallback, and the subscription is re-asserted on a slow beat rather
+  than trusted to survive.
 - Restore. Deliberately out of scope; the download side is the only half that was measured. The
   restore *endpoints* are no longer unknown — they are among the 39 operations measured on the
   management route and they answer to these credentials — but no stored archive has ever been

@@ -39,6 +39,7 @@ from .const import (
     CONF_BACKUP_PASSWORD,
     CONF_CERT_FINGERPRINT,
     CONF_PLAIN_HTTP,
+    CONF_PUSH,
     CONF_SCAN_INTERVAL,
     CONF_SKIP_VERIFY,
     CONF_VERIFY_SSL,
@@ -47,6 +48,7 @@ from .const import (
     DEFAULT_BACKUP_INTERVAL,
     DEFAULT_BACKUP_KEEP,
     DEFAULT_PORT,
+    DEFAULT_PUSH,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SSL,
     DEFAULT_USERNAME,
@@ -596,6 +598,10 @@ class WiserKnxOptionsFlowHandler(config_entries.OptionsFlow):
         options = self.config_entry.options
         schema = vol.Schema(
             {
+                vol.Optional(
+                    CONF_PUSH,
+                    default=options.get(CONF_PUSH, DEFAULT_PUSH),
+                ): bool,
                 vol.Optional(
                     CONF_SCAN_INTERVAL,
                     default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),

@@ -17,7 +17,7 @@ Greek mu, and `dpt.valueLux` carries no unit at all.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -41,7 +41,14 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    DOMAIN,
+    PUSH_STATUS_DEGRADED,
+    PUSH_STATUS_LIVE,
+    PUSH_STATUS_OFF,
+    PUSH_STATUS_PENDING,
+    PUSH_STATUS_UNAVAILABLE,
+)
 from .coordinator import WiserKnxDataUpdateCoordinator, WiserKnxHealthCoordinator
 from .datapoints import (
     ROLE_BATTERY_LEVEL,
@@ -278,6 +285,55 @@ class WiserKnxLastBackupSensor(SensorEntity):
         return attrs
 
 
+class WiserKnxPushSensor(SensorEntity):
+    """Whether the controller is really delivering datapoint callbacks.
+
+    This exists because the controller gives nothing away: with its delivery
+    daemon dead the subscription stays listed and every endpoint keeps answering
+    200, so "push silently stopped and we are back to polling" would otherwise
+    be invisible. `live` means callbacks are arriving and the poll has slowed to
+    its backstop; `pending` means subscribed but nothing delivered yet;
+    `degraded` means a poll caught values no callback reported; `unavailable`
+    means it could not be set up at all - and all three of those poll at the
+    configured interval, exactly as the integration did before push existed.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Push"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options: ClassVar[list[str]] = [
+        PUSH_STATUS_OFF,
+        PUSH_STATUS_UNAVAILABLE,
+        PUSH_STATUS_PENDING,
+        PUSH_STATUS_LIVE,
+        PUSH_STATUS_DEGRADED,
+    ]
+    _attr_should_poll = False
+
+    def __init__(
+        self, coordinator: WiserKnxDataUpdateCoordinator, entry_id: str
+    ) -> None:
+        """Initialize the sensor."""
+        self._push = coordinator.push
+        self._attr_unique_id = f"{DOMAIN}_{entry_id}_push"
+        self._attr_device_info = controller_device_info(coordinator, entry_id)
+
+    async def async_added_to_hass(self) -> None:
+        """Refresh whenever the push state changes."""
+        self.async_on_remove(self._push.add_listener(self.async_write_ha_state))
+
+    @property
+    def native_value(self) -> str:
+        """Return the push status."""
+        return self._push.status
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the callback counters. Never the signing secret."""
+        return self._push.diagnostics
+
+
 class WiserKnxHealthSensor(CoordinatorEntity[WiserKnxHealthCoordinator], SensorEntity):
     """A diagnostic value read from the controller's management API."""
 
@@ -368,6 +424,8 @@ async def async_setup_entry(
             coordinator, entry.entry_id, "datapoints", "Exported datapoints"
         ),
     ]
+    if coordinator.push is not None:
+        entities.append(WiserKnxPushSensor(coordinator, entry.entry_id))
     if coordinator.health is not None:
         entities.extend(
             WiserKnxHealthSensor(coordinator.health, coordinator, entry.entry_id, desc)

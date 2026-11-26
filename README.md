@@ -39,11 +39,12 @@ A Home Assistant custom integration for **Schneider Electric Wiser for KNX** (an
   | any other writable slot | **select** (it publishes a list of values) or **number** |
 
   Alongside each device: its battery level and low-battery alert, its device-status (online/offline) flag, a socket's active power, a valve drive's heating demand, a shutter's "is moving" and last direction — each as its own entity, diagnostic ones marked as such.
+- **Instant updates (push)**, on by default: the controller sends each datapoint change to Home Assistant as it happens — sub-second instead of up to ten seconds — and polling drops to a slow safety net. It never stops being a safety net, because the controller gives no sign when it quietly stops sending; see [Instant updates](#-instant-updates-push).
 - **New devices appear without a restart**: the controller publishes a function a few seconds (and during heavy reconfiguration, minutes) before its datapoints, so entities are added as soon as they show up instead of only at startup.
 - **Controller monitoring**: firmware, uptime, CPU load (1/5/15 min), memory and storage from the management API, the time of the last backup, and how many functions and datapoints the controller is currently exporting.
 - **Touch configuration requirement:** the controller only publishes a widget channel through its API when the channel has **both** a control object **and** a status feedback object (they may use the same group address). Channels with only one of them never reach the API, even where the Touch widget marks the status feedback as optional — and a widget whose "Disable API Export" setting is on is absent entirely. The "Exported functions/datapoints" sensors are there to make that visible.
 - One Touch widget can become **several** devices: a multi-channel widget publishes one device per fully configured channel, named `<widget name> 1`, `<widget name> 2` and so on, and a widget such as a weather station or a thermostat publishes devices of *different* kinds at once.
-- A state is read from the status object and a command is sent to the control object (the controller collapses the two into one datapoint). Home Assistant shows the new state right away; if no actuator reports the status object back, the state reverts on the next poll.
+- A state is read from the status object and a command is sent to the control object (the controller collapses the two into one datapoint). Home Assistant shows the new state right away; if no actuator reports the status object back, the state reverts on the next read.
 
 ---
 
@@ -131,6 +132,56 @@ Under **Configure** you can enable *Skip certificate verification (insecure)*. W
 
 The connection uses HTTPS by default. *Use plain HTTP instead of HTTPS (insecure)* is available during setup and under **Configure** for controllers that cannot serve HTTPS; while it is on, the controller password and the backup password are sent unencrypted and Home Assistant shows a repair notice.
 
+## ⚡ Instant updates (push)
+
+By default the controller is asked to **send** every datapoint change to Home Assistant instead of
+being polled for it. State then arrives in well under a second, and Home Assistant stops
+re-downloading every value every few seconds.
+
+Nothing to set up: during startup the integration registers a callback address with the controller
+and subscribes to everything the controller exports. You can turn it off under **Configure** →
+*Instant updates (push)* to go back to polling only.
+
+**Polling never stops.** It slows to one full read every few minutes while push is working, and it
+goes straight back to the interval you configured if push stops. That is deliberate: the
+controller's delivery service can stop without any error — the subscription stays registered and
+the API keeps answering normally — so Home Assistant checks for itself rather than trusting it.
+If a check finds values that were never sent, the integration goes back to full-speed polling and
+re-registers the subscription. **Every way push can fail ends in the polling the integration has
+always done, never in missing or stale devices.**
+
+The controller device has a **Push** sensor so you can see which is in use:
+
+| Push | What it means |
+|---|---|
+| `live` | changes are arriving; polling is the slow safety net |
+| `pending` | subscribed, but nothing has been delivered yet |
+| `degraded` | changes were being missed, so polling is back at full speed and the subscription is being re-registered |
+| `unavailable` | it could not be set up — the `reason` attribute says which step failed |
+| `off` | turned off under **Configure** |
+
+Worth knowing:
+
+- The controller needs to be able to reach Home Assistant's own address. The callback is registered
+  against Home Assistant's **internal** URL (**Settings** → **System** → **Network**), so if that
+  is wrong or unreachable from the controller, the sensor stays at `pending` and the integration
+  just keeps polling.
+- The callback is **plain HTTP** unless your Home Assistant serves HTTPS on its internal URL. On a
+  normal home network that is the same exposure as the rest of the traffic between the two; every
+  message is signed, and a message that fails its signature check is dropped without changing
+  anything.
+- Very rapid changes to the *same* value are coalesced by the controller: changes less than about a
+  second apart arrive as one message carrying the latest value. Home Assistant always shows the
+  current value, but it cannot be used to count individual pulses.
+- 🧪 **This is new and has not yet run on anyone's installation.** The protocol was measured against
+  a real controller, and the parts that can be tested here are tested, but the Home Assistant side
+  has never received a real callback. If entity state stops tracking the bus, turn *Instant updates*
+  off under **Configure** — that restores the previous behaviour immediately — and please
+  [open an issue](https://github.com/bartosekpetr/HomelYnk-HA/issues) with the **Push** sensor's
+  state and attributes.
+
+---
+
 ## 💾 Controller Backups
 
 The integration can download your controller's configuration through its management API (`/api/management/v1`) using the same credentials. Two ZIP archives are stored per backup: the **system** configuration and the **project** (SCADA) configuration. Both are encrypted with a password you choose.
@@ -177,6 +228,15 @@ All of the below are controller-side behaviours measured on a real unit; see
 - Otherwise the controller is usually busy recomputing its configuration, and it recovers on its own.
 
 **A command does nothing, or the state jumps back.** The controller accepts a write and only then decides whether it understood it, so a command can be dropped without any error. The log names the datapoint and the values it does accept. A state that reverts on the next poll usually means nothing on the KNX bus reports the status object back — the command was sent, but only the status object can confirm it.
+
+**State is slow, or stops following the bus.** Look at the **Push** sensor on the controller
+device. If it says `live` but entities lag by minutes, the controller's delivery service has
+stopped between two safety-net reads — the integration notices on its next read and goes back to
+full-speed polling by itself, so the worst case is a few minutes and not forever. If it says
+`pending` with `callbacks_received` at 0, the controller cannot reach Home Assistant's internal
+URL; fix that under **Settings** → **System** → **Network**, or turn *Instant updates* off under
+**Configure** to poll only. Either way, devices keep working: see
+[Instant updates](#-instant-updates-push).
 
 **A cover's stop button does nothing, or moves the shutter.** The controller publishes a shutter's stop object with the two values `increase` and `decrease`, and the integration sends `decrease`, because that is the one that puts a 0 on the group object — measured on the bus — and a 0 is what the controller's own Touch stop button sends. If your actuator's stop object wants the other value, the stop button will move the shutter instead of stopping it; please open an issue. A cover whose stop object publishes values the integration has not measured gets no stop button rather than a guess.
 

@@ -74,6 +74,13 @@ if importlib.util.find_spec("homeassistant") is None:
     sys.modules["homeassistant.helpers.entity"] = MagicMock()
     sys.modules["homeassistant.helpers.event"] = MagicMock()
     sys.modules["homeassistant.helpers.selector"] = MagicMock()
+    network_mock = MagicMock()
+
+    class _NoURLAvailableError(Exception):
+        """Real class, not a MagicMock: push.py catches it when no URL is usable."""
+
+    network_mock.NoURLAvailableError = _NoURLAvailableError
+    sys.modules["homeassistant.helpers.network"] = network_mock
     sys.modules["homeassistant.util"] = MagicMock()
     sys.modules["homeassistant.util.dt"] = MagicMock()
     sys.modules["homeassistant.data_entry_flow"] = MagicMock()
@@ -115,6 +122,7 @@ if importlib.util.find_spec("homeassistant") is None:
         "lock",
         "select",
         "number",
+        "webhook",
     ):
         sys.modules[f"homeassistant.components.{_component}"] = MagicMock()
 

@@ -4,6 +4,26 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+- **The controller pushes changes now, and the poll stays on as the backstop.** The
+  integration subscribes every exported datapoint to the controller's HTTP callback
+  channel, so a change on the bus reaches Home Assistant in well under a second
+  instead of waiting for the next poll. It is on by default and can be turned off
+  under **Configure**. Each frame's `X-Callback-Signature` is verified before it
+  touches any entity state, and the signing key is random per configuration entry
+  and never logged.
+  Polling does **not** go away: it slows to five minutes once a callback has
+  actually arrived, and returns to the configured interval the moment a poll finds
+  a change no callback reported. The controller's delivery can stop without saying
+  so — the subscription stays listed and every endpoint keeps answering — so that
+  slow poll is the only thing able to notice. A **Push** sensor on the controller
+  device shows whether it is live, and every failure path lands back on plain
+  polling rather than on stale state.
+
+## 0.8.1-beta.1 - 2026-11-25
+
+A pre-release carrying one fix. It is only offered by HACS if you have turned on
+beta versions for this repository.
+
 - **The lowest brightness on the slider no longer switches a dimmer off.** Home
   Assistant's minimum brightness is 1 of 255, which is 0.4 % and was being
   truncated to 0 % — and 0 % is off, so asking a dimmer for its faintest setting
