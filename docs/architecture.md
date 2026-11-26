@@ -1,16 +1,22 @@
 # Architecture
 
-Diagram current as of `16941a8` — 2026-11-26. Kept current by the diagram-upkeep routine
-(SMA-213). **One correction, and it is to a transform on the load-bearing data path.** The
-previous revision shipped *inside* `16941a8` and dated itself by its task (SMA-112); resolving
-that to the commit it rode in shows its own range included `b7c69ae`, one commit earlier, which it
-did not fold in. `b7c69ae` put a **1 % floor** on the brightness write, so §4 item 11 and the
-brightness row in [§7](#7-failure-attribution) were still describing a bug that had already been
-fixed. Both are corrected, §4's diagram now says the write-path transform is *not* the read's
-inverse, and [§8](#8-confidence) carries the floor as its own row. Nothing structural moved in this
-revision: no component, no responsibility and no edge changed. Range checked: `03f3984..16941a8`,
-plus `32097d6` on `origin/main` (the v0.8.1-beta.1 pre-release — a CHANGELOG entry and a version
-bump, no behaviour).
+Diagram current as of `47929fa` — 2026-11-26. Kept current by the diagram-upkeep routine
+(SMA-213). **Two corrections, and the first is to this page's own contract.** 🪤 The previous
+baseline named `16941a8`, and that sha is no longer reachable from `main`: integrating
+v0.9.0-beta.1 rebased it away (the diagram commit itself came back as `fdc87e0`). So
+`git log 16941a8..HEAD` still works in a checkout holding the old object and **errors in a fresh
+clone** — the same dangling-sha trap `AGENTS.md` §6 records for the skillset, reproduced here by
+this page. The baseline is re-pointed to the commit this run actually checked from, and the lesson
+is the one already written down: a sha in a citation is only stable until someone rewrites history.
+Second, `diagnostics.py` / `diagnostics_utils.py` arrived in `a086d28`, which gave them a
+responsibility row ([§3](#3-components-and-responsibilities)) and an in/out row
+([§5](#5-per-component-in--out)) but put them in **neither master diagram**, in no edge table and
+in no confidence row — a component this page claimed to draw and did not. Both master diagrams now
+carry it as edges **59–62**, and [§8](#8-confidence) rates them. Range checked:
+`fdc87e0..47929fa`, which also contains `39f3bd3` (the reboot measurement, already folded into
+§7 and §8 by that commit), two new read-only coordinator properties and `plan.py`'s
+`_COMPOSITE_PLATFORMS` → `COMPOSITE_PLATFORMS` rename — accessors and a visibility change that
+exist so diagnostics can read them, not behaviour, so no existing edge moved.
 
 The revision before this one is where push arrived, and that remains the current shape:
 `push.py` and `push_utils.py` are components, the controller has an **inbound** edge to Home
@@ -76,7 +82,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |  config entry store: data + options (6,7,8)   entity registry (11,12)  |           |
  |  device registry (10,11)   issue registry (13)   service registry (14) |           |
  |  HA backup subsystem (16)  HA executor (18,21)  shared aiohttp session (20)        |
- |  reauth trigger (9)        <config>/wiser_backups/ (17)                |           |
+ |  reauth trigger (9)  <config>/wiser_backups/ (17)  diagnostics API (59)|           |
  |      |                                                                 |           |
  |      v                                                                 |           |
  |  +-------------------------+                 +---------------------------+         |
@@ -147,6 +153,17 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |   | THE POLL NEVER STOPS: 300 s while callbacks arrive,          |                   |
  |   | scan_interval the moment they do not (push fails SILENT).    |                   |
  |   | push_utils.py: signature, frame decode, subscribe body (pure)|                   |
+ |   +-------------------------------------------------------------+                   |
+ |   +-------------------------------------------------------------+                   |
+ |   |                  diagnostics.py  (59..62)                   |                   |
+ |   | HA pull, on demand only - never polled, decides nothing.    |                   |
+ |   | Reads both registries, hass.states and the coordinator;     |                   |
+ |   | puts each decision next to its result: category and         |                   |
+ |   | viability, dpa archetype, role, platform, entity, state.    |                   |
+ |   | THE ONLY EGRESS: this file goes into a public bug report.   |                   |
+ |   | redact() gates it BY KEY NAME; api_base is safe only        |                   |
+ |   | because api.py regex-guards it to a path (no host in it).   |                   |
+ |   | diagnostics_utils.py: shaping, review, redact (pure)        |                   |
  |   +-------------------------------------------------------------+                   |
  |   const.py (39) supplies every constant above; identity.py (31) the stable ids;     |
  |   backup_utils.py (37) the pure password / filename / prune / ZIP-parse helpers     |
@@ -265,6 +282,10 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 56 | `coordinator._check_push_delivery` | `push.async_delivery_stopped` | the liveness signal, and the only one that exists: a backstop poll finding values no callback reported |
 | 57 | `push` | `coordinator.async_set_push_cadence` | switches the poll between the 300 s backstop and `scan_interval`. Never switches it off |
 | 58 | `GET /messaging/ws` | — | **not an edge at all**: 404 on this firmware in every form tried. The spec describes it; the controller does not serve it |
+| 59 | HA diagnostics API | `diagnostics.async_get_config_entry_diagnostics` | pull, **on demand only** — a human clicking *Download diagnostics*. Never polled, never scheduled, and the only edge on this page a user triggers by hand after setup |
+| 60 | entity registry + device registry + `hass.states` | `diagnostics.py` | read. The registry is the authority on **what exists**, which is the one thing a screenshot of the device page cannot distinguish from a fresh install: an entity that was created and then stopped being exported is still a row |
+| 61 | `coordinator` | `diagnostics.py` | read-only: `data`, `entity_plan`, health, push, the backup manager, and `server_errors` / `structure_age` — two properties that exist for this edge and no other. Reads nothing from the controller, so a diagnostics download cannot disturb a poll |
+| 62 | `diagnostics_utils.build_diagnostics` | a JSON file the user attaches to a public issue | **egress, and the only one on this page that leaves for a human rather than the controller.** `redact()` is the entire gate, and it matches **by key name** — see [§8](#8-confidence) for why `api_base` survives that design and `host` does not have to |
 
 ---
 
@@ -291,6 +312,7 @@ flowchart TB
       EX["HA executor"]
       SESS["Shared aiohttp session"]
       FS["config/wiser_backups/*.zip"]
+      HADG["HA diagnostics API<br/>Download diagnostics,<br/>on demand only"]
     end
 
     subgraph INT["custom_components/wiser_for_knx"]
@@ -319,9 +341,13 @@ flowchart TB
       SEL["select.py / number.py<br/>writable enums and numbers"]
       SE["sensor.py<br/>datapoint readings, 7 health,<br/>last backup, export counts"]
       BT["button.py<br/>Create backup, Rescan devices,<br/>one per KNX scene"]
+      DIAG["diagnostics.py<br/>reads both registries, hass.states<br/>and the coordinator;<br/>decides nothing, writes nothing"]
+      DU["diagnostics_utils.py<br/>payload shaping, the review block,<br/>and redact() BY KEY NAME (pure)"]
       CONST["const.py<br/>constants only"]
     end
   end
+
+  DLOAD["Downloaded JSON file<br/>attached to a public bug report<br/>redact() is the only gate"]
 
   subgraph CTRL["Wiser for KNX controller - not ours"]
     WK["GET /.well-known/knx<br/>unauthenticated, returns api.base"]
@@ -426,6 +452,13 @@ flowchart TB
   PM --> SE
   PUSH ==>|"POST signed callback;<br/>THE ONLY INBOUND EDGE.<br/>unauthenticated by necessity,<br/>gated by X-Callback-Signature"| PM
   APIC -.->|"never called, and<br/>there is nothing to call"| WS
+
+  HADG -->|"a human clicks it;<br/>never polled"| DIAG
+  ER -->|"what exists, plus each state"| DIAG
+  DR -->|"controller plus one per function"| DIAG
+  COORD -->|"data, entity_plan, health, push,<br/>server_errors, structure_age"| DIAG
+  DIAG --> DU
+  DU ==>|"redacted JSON; THE ONLY EGRESS,<br/>and the only edge that leaves<br/>for a human, not the controller"| DLOAD
 
   TOUCH --> EXPORT
   EXPORT -->|"functions first, datapoints 15 s plus later"| TP
@@ -937,6 +970,9 @@ controller.
 | The certificate-changed reauth card is raised on a real installation | **observed-only** | owner-confirmed 2026-11-22: a controller presenting a different certificate than the pinned one produced the **"Controller certificate changed"** card with the new and previously trusted fingerprints, exactly as the code draws it. **Submitting** that card — `async_update_reload_and_abort`, entry and entity ids preserved — is still **inferred from code**: the owner removed and re-added the entry instead, so that branch has never been run |
 | The v0.7.x → v0.8.x upgrade path | **never run** | v0.8.0 stable is the version every existing user will take it on, and no installation has upgraded across it. The one HA-side data point is a fresh v0.8.0-beta.2 install through HACS on 2026-11-22, reported working — no entity list was taken |
 | Everything HA-runtime: flow steps, registries, scheduler, services, backup hooks, migration | **inferred from code** | `tests/conftest.py` mocks HA when it is not installed, so these are reasoned from the code and from the manual checklist in [docs/development.md](development.md), not asserted by the suite in every environment |
+| Edges 59–61: diagnostics reads the registries, `hass.states` and the coordinator | **inferred from code**, pure half unit-tested | `tests/test_diagnostics.py` covers the shaping, the `review` block and the redaction against hand-built inputs. The three *reads* need a running Home Assistant — `er.async_entries_for_config_entry`, `dr.async_entries_for_config_entry` and `hass.states.get` are all mocked in the suite — so **no diagnostics file has ever been produced by a real Home Assistant.** This is the file SMA-216 asks the owner for, which makes it the one unexercised path the project is actively depending on |
+| Edge 62: `redact()` keeps the owner's host, credentials, MAC/serial and callback path out of the downloaded file | **inferred from code**, unit-tested | the gate is a **key-name allowlist** (`password`, `backup_password`, `username`, `host`, `certificate_fingerprint`, `unique_id`, `device_id`, `callback_path`, `secret`), applied at any depth. 🪤 A key-name gate is exactly the shape `AGENTS.md` §5 warns about — "a list is not a gate" — because a value can ride out under a key nobody listed, and the entry's `data` is passed through wholesale. The one field that could re-introduce the host is **`api_base`, which is not redacted**; it is safe only because `api.py`'s setter regex-guards it to a plain path and rejects anything containing `//`, so it holds `/api/w4knx/3rdparty/v1` and never a URL. **That is a guarantee enforced in a different file from the redactor, and no test pins the pair** — checked by reading both on 2026-11-26, not by running them. `port` is unredacted by choice. The signing secret is not reachable from here at all: the push manager does not expose it |
+| Edge 62 is the only egress from this system that is **not** to the controller | **inferred from code** | everything else crosses the boundary at the bottom of §1 to a device on the owner's LAN. This one crosses to a GitHub issue, which is public and permanent, and nothing in Home Assistant warns a user of that before the file downloads. Reasoned from the code path; no file has been produced, so what a real payload contains has never been inspected |
 
 ### Never probed
 
