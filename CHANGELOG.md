@@ -18,6 +18,13 @@ All notable changes to this project are documented in this file.
   slow poll is the only thing able to notice. A **Push** sensor on the controller
   device shows whether it is live, and every failure path lands back on plain
   polling rather than on stale state.
+- **Security: upgrade if you are still on 0.7.x or earlier.** Those versions
+  trusted the API base path returned by the controller's own discovery response
+  and used it unchecked when building authenticated requests, so a tampered or
+  spoofed response could have sent the controller credentials to another host.
+  The path is validated as of 0.8.0. Upgrading is all that is required — a value
+  stored before the fix is re-validated when the integration loads, so there is
+  nothing to clear by hand.
 
 ## 0.8.1-beta.1 - 2026-11-25
 
@@ -29,13 +36,6 @@ beta versions for this repository.
   truncated to 0 % — and 0 % is off, so asking a dimmer for its faintest setting
   turned the light out instead. Any non-zero brightness now reaches the
   controller as at least 1 %.
-- **Security: upgrade if you are still on 0.7.x or earlier.** Those versions
-  trusted the API base path returned by the controller's own discovery response
-  and used it unchecked when building authenticated requests, so a tampered or
-  spoofed response could have sent the controller credentials to another host.
-  The path is validated as of 0.8.0. Upgrading is all that is required — a value
-  stored before the fix is re-validated when the integration loads, so there is
-  nothing to clear by hand.
 
 ## 0.8.0 - 2026-11-22
 
