@@ -173,6 +173,14 @@ Worth knowing:
 - Very rapid changes to the *same* value are coalesced by the controller: changes less than about a
   second apart arrive as one message carrying the latest value. Home Assistant always shows the
   current value, but it cannot be used to count individual pulses.
+- **A controller restart needs nothing from you.** Measured on a reference unit: the subscription
+  survives a restart and messages start arriving again on their own, about 40 seconds after it is
+  triggered — and for roughly the first minute after that, far fewer messages arrive than values
+  change (each one still carrying the current value). The controller's API answers around 15 seconds
+  before the first message arrives, so during that gap the **Push** sensor may go to `degraded` and
+  polling goes back to full speed: that is the safety net doing its job, not a fault, and it returns
+  to `live` by itself. A **power cut** can additionally lose a subscription registered in the
+  preceding half hour — Home Assistant notices within a few minutes and registers a new one.
 - 🧪 **This is new and has not yet run on anyone's installation.** The protocol was measured against
   a real controller, and the parts that can be tested here are tested, but the Home Assistant side
   has never received a real callback. If entity state stops tracking the bus, turn *Instant updates*

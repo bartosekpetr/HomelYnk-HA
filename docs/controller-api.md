@@ -235,7 +235,15 @@ next poll (`/functions` 3 → 5, `/datapoints` 7 → 15), with the export tracki
 down again afterwards. **A reboot is not a reliable fix**: on that unit `/var/run` held pidfiles
 for `touch3`, `cloud-connector` and `cc-watchdog` dated to the last boot and none for `apit3` at
 all, i.e. the daemon had not run since that boot, and every widget-export measurement in the
-skillset predates it. The freeze began at a boot rather than being cured by one. If an installation reports that a widget added in
+skillset predates it. The freeze began at a boot rather than being cured by one.
+
+🪤 **A later round pulls the other way, and the advice survives both.** The authorised reboot of
+2026-11-25 (§3b item 6) recorded `apit3` running again **34.5 s** after the trigger, under a new
+pid — so that boot did start the daemon. The two readings are unreconciled and neither is wrong:
+the 2026-11-25 run rebooted a box whose daemon was *alive* beforehand, while the frozen-export case
+is a box whose daemon is *dead*, and nobody has rebooted one of those. So "reboot and see" is still
+not a fix anyone can promise, and the instruction to users is unchanged: reboot if you like, then
+add a widget and check that it appears. If an installation reports that a widget added in
 Touch never shows up in Home Assistant while everything else keeps working, this is the first
 thing to check, and it is checkable only on the controller (`ps | grep apit3`). The
 integration's "Rescan devices" button cannot help: it re-reads the same cache.
@@ -346,7 +354,9 @@ payload wholesale into an attribute dict.
 ## 3. Push – `POST /subscribe` (measured, and now used)
 
 The 3rd Party API advertises two ways not to poll, and on 2026-11-22 both were measured end to
-end on the reference unit (firmware 3.1.0, `apit3` 1.36.3). One of them does not exist. The other
+end on the reference unit (firmware 3.1.0, `apit3` 1.36.3), with the channel's last deliberately
+unmeasured row — what it does across a controller reboot — closed on **2026-11-25** (§3b item 6).
+One of them does not exist. The other
 is what `push.py` and `push_utils.py` implement, on by default since SMA-112 — §3c is what the
 code does with each measurement below, and it is the part to read before changing any of it.
 
@@ -377,7 +387,7 @@ consequence: the "push might require OAuth against the Schneider cloud" risk nev
 the channel that does exist takes the same HTTP Basic credential as every other surface. Re-run the
 probe after a firmware update rather than assuming it stays absent.
 
-### 3b. The callback channel, and the five things that change code
+### 3b. The callback channel, and the six things that change code
 
 ```http
 POST /api/w4knx/3rdparty/v1/subscribe
@@ -447,15 +457,54 @@ subscribed.
    delivery was 7 of 7, so the record itself is durable. **Nothing in the API distinguishes
    "subscribed and quiet" from "subscribed and dead"**, so a liveness timeout that falls back to
    reading `/datapoints` is mandatory, and `scan_interval` should become a slow backstop rather than
-   being removed. Re-assert the subscription on startup and after any gap — behaviour across a
-   controller **reboot** was deliberately not measured (the reference unit is a live house), so
-   depend on no prediction either way.
+   being removed. Re-assert the subscription on startup and after any gap — for the reason in
+   item 6, which since 2026-11-25 is a measured one rather than insurance against an unknown.
+6. **Across a controller reboot: the subscription survives, and a `200` still proves nothing.**
+   Measured 2026-11-25 on the reference unit under a one-time authorisation from its owner (a
+   FlashSYS reboot is a destructive action on a live house; the skillset's rig refuses to run this
+   leg without the authorisation recorded in the artefact, and it has not been re-run). The
+   subscription record was still listed afterwards, **delivery resumed with no re-subscribe**, the
+   pinned certificate was unchanged, and subscriptions that existed before the run were intact. Two
+   controls are what make that a measurement rather than a tautology: the reboot demonstrably
+   happened (`/proc/uptime` 13 days → 12.7 s, `apit3` back under a new pid) and the record was
+   provably not on flash beforehand (0 hits grepping the on-flash snapshot for the subscription id
+   while it was live and delivering, against 1 hit on the same file afterwards). Three consequences,
+   and the first two are the ones that reach this integration:
+
+   | mark | seconds after the reboot was triggered |
+   |---|---|
+   | REST surface stops answering | 5 |
+   | **REST surface answers 200 again** | **25** |
+   | `apit3` delivery daemon running again | 34.5 |
+   | **first callback actually delivered** | **39.6** |
+
+   🔴 **A `200` from the API does not mean push is flowing — and now that is also what a *healthy*
+   startup looks like.** There is a ~15 s window where every endpoint answers, the subscription is
+   listed, and nothing is being delivered. It is the same silent-failure shape as item 5, so the
+   same rule covers both: hold the fast poll until callbacks are observed *arriving*, never because
+   the API answered.
+
+   🪤 **Delivery is lossy for roughly the first minute, then is not.** The drive immediately after
+   the reboot delivered 3 of 7 changes — the three arriving in the same second, each carrying its
+   datapoint's *latest* value — and 7 of 7 again on the settled box five minutes later. So the
+   coalescing of item 4 is much wider during warm-up: state converges correctly, counted edges do
+   not. Nothing was lost in the only sense that matters for an entity.
+
+   ⬛ **A subscription is a cache entry, not a database row, so an *unclean* power loss can still
+   lose one — inferred, not measured.** Its only store is a key in the controller's Redis
+   (`app:se-apit3:subscriptions`): with a subscription live and listed, its id is in no SQLite table
+   and in no file on disk. Redis's only flash copy is a snapshot written every 1800 s and on a clean
+   shutdown — which is *why* the clean reboot above preserved it. A power cut is therefore expected
+   to drop any subscription registered since the last snapshot, up to half an hour's worth, and
+   nothing in the 3rd Party API can force a flush. Pulling power on a live house is not a
+   measurement that will be taken, so this stays inferred — and it is the standing reason to
+   re-assert on a slow beat instead of trusting `GET /subscriptions`.
 
 ### 3c. What the integration does with each of those
 
 `push.py` owns the subscription and the callback endpoint; `push_utils.py` holds the pure parts
 (signature, frame decode, body building) and is unit-tested in `tests/test_push_utils.py`. The
-mapping from the five measurements above to the code:
+mapping from the six measurements above to the code:
 
 | Measurement | What the code does |
 |---|---|
@@ -466,6 +515,9 @@ mapping from the five measurements above to the code:
 | the secret is kept in clear on the controller | a fresh `secrets.token_urlsafe(32)` per entry, regenerated on **every** re-assert, never logged, never in the sensor's attributes. A valid signature authorises exactly one thing: setting that datapoint's value |
 | a callback is a state notification | each frame is applied as "this is the current value"; nothing counts edges |
 | push fails silent and does not self-heal | **the poll never stops.** It slows to `PUSH_BACKSTOP_INTERVAL` (300 s) once a callback actually arrives and returns to `scan_interval` the moment delivery looks dead |
+| a subscription survives a clean reboot, but a `200` runs ~15 s ahead of the first callback | `_async_assert` ends on `PUSH_STATUS_PENDING` with `async_set_push_cadence(False)`: a subscription that the controller accepted buys **no** cadence change, only an arriving callback does. So the window costs nothing — the integration is already polling through it |
+| an unclean power loss can drop a subscription younger than the controller's last Redis snapshot | the subscription is re-asserted on a slow beat (`PUSH_RETRY_MAX_INTERVAL`) and `GET /subscriptions` is never read as proof that one is still registered. The re-assert deletes first, then creates, and a record left behind pointing at this entry's path is reconciled by path, so recovering from the lost case and the duplicated case is the same code |
+| the first minute after a reboot coalesces much harder than the settled ~0.8 s | nothing counts edges, so a wider window changes no state. What it does do is make `_push_missed` fire — several datapoints moved with no callback for them — which lands on full-speed polling and a re-assert, i.e. the correct response to a channel that was in fact not delivering yet |
 
 The liveness check is the part with no API support, so it is worth stating plainly: nothing
 distinguishes "subscribed and quiet" from "subscribed and dead", so **the backstop poll is the
@@ -477,11 +529,14 @@ already patched the local copy. That same race is why `_carry_over_pushed` keeps
 callback delivered *during* a poll: the poll's answer is the older snapshot, and letting it land
 would roll the entity back for a whole backstop interval.
 
-Three things are **not measured** and the code deliberately depends on neither answer: whether a
+Two things are **not measured** and the code deliberately depends on neither answer: whether a
 re-subscribe replaces or duplicates a record (so a re-assert always deletes first, then creates),
-whether there is a cap on datapoints per subscribe body (the whole set goes in one request and
-batching is only a *fallback* if the controller refuses it), and whether a subscription survives a
-controller reboot (so it is re-asserted on a slow beat rather than trusted). Orphans are matched
+and whether there is a cap on datapoints per subscribe body (the whole set goes in one request and
+batching is only a *fallback* if the controller refuses it). A third used to be on this list —
+whether a subscription survives a controller reboot — and is now measured (§3b item 6): it does,
+across a *clean* reboot. The code is unchanged by that answer, because the case it insures against
+is the one still inferred: an unclean power loss, where the record is younger than the controller's
+last Redis snapshot and is simply gone. Orphans are matched
 by callback **path**, which is derived from the config entry id: the case that leaves an orphan is
 exactly the one where Home Assistant's address changed, so matching the authority would miss it,
 and matching the path means one entry can never delete another's record.

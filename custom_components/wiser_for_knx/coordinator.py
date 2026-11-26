@@ -285,9 +285,11 @@ class WiserKnxDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Slow the poll to the backstop, or put it back on the configured interval.
 
         The poll is never switched off. Push fails silent, nothing on the
-        controller restarts the daemon that delivers it, and a reboot is not a
-        reliable fix either, so the only safe destination for every failure path
-        is the polling this integration has always done.
+        controller restarts the daemon that delivers it, and nothing in the API
+        tells a dead channel from a quiet one - not even a restart, where the
+        REST surface answers a good 15 s before the first callback arrives. So
+        the only safe destination for every failure path is the polling this
+        integration has always done.
         """
         wanted = timedelta(
             seconds=PUSH_BACKSTOP_INTERVAL if backstop else self._poll_interval

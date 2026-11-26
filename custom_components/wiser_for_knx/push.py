@@ -12,12 +12,17 @@ Three measurements shape the whole design (`docs/controller-api.md` §3b):
 
 * 🔴 **Push fails silent and does not self-heal.** The REST surface is
   nginx-embedded Lua; delivery is a separate daemon. Kill the daemon and the
-  subscription stays listed, every endpoint keeps answering 200, and nothing
-  restarts it - a reboot included, since the reference unit had no pidfile since
-  its last boot. So the poll never goes away: it slows to a backstop while
-  callbacks arrive and comes straight back to the configured interval when they
-  stop. Every failure path in here ends in the polling this integration has
+  subscription stays listed, every endpoint keeps answering 200, and nothing on
+  the controller restarts it. So the poll never goes away: it slows to a backstop
+  while callbacks arrive and comes straight back to the configured interval when
+  they stop. Every failure path in here ends in the polling this integration has
   always done, never in stale or unavailable entities.
+* 🔴 **A 200 is not evidence that push is flowing, even on a healthy
+  controller.** Measured across a reboot: the REST surface answers again at 25 s
+  and the first callback lands at 39.6 s, so there is a window in which every
+  endpoint answers, the subscription is listed and nothing is delivered. Nothing
+  in here reads an accepted subscription as delivery - the cadence only slows
+  when a callback has actually arrived.
 * 🔴 **A callback is a state notification, not an event.** Sub-second, but
   changes closer than ~0.8 s to one datapoint are coalesced to the latest value.
   Nothing here counts edges.
@@ -518,9 +523,12 @@ class WiserKnxPushManager:
                 len(ids),
                 self._path,
             )
-            # Nothing says a subscription survives a controller reboot, and an
-            # installation can be quiet for hours, so re-assert on a slow beat
-            # rather than waiting for a callback that may never come.
+            # A subscription survives a *clean* controller reboot (measured), but
+            # it is a cache entry in the controller's Redis that reaches flash
+            # only every 30 minutes, so a power cut can take a recent one with
+            # it. An installation can also be quiet for hours, so there is no
+            # callback to wait for. Hence a slow beat rather than trusting
+            # `GET /subscriptions`, which would list a record either way.
             self._schedule_retry(PUSH_RETRY_MAX_INTERVAL)
         finally:
             self._asserting = False
