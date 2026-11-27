@@ -4,6 +4,28 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+## 0.9.0 - 2026-11-27
+
+The first stable release with the push channel and the diagnostics download.
+Coming from 0.8.0, this brings everything in the two pre-release sections below —
+push, the diagnostics file and the dimmer fix — plus the addition below.
+
+Push is on by default and can be turned off under **Configure**. Its Home
+Assistant half has still never been exercised by any test, because the suite
+mocks Home Assistant; what is verified is the decisions it takes and the
+signature it checks. Every failure path in it lands on the polling behaviour of
+0.8.0 exactly, which is also where turning it off puts you.
+
+- **The diagnostics file now names the entities the controller has stopped
+  exporting.** Deleting a widget, or recreating one instead of editing it, makes
+  the controller publish new channel ids — so the entities built from the old
+  ones are left behind, permanently unavailable, under the names they had at the
+  time, often right next to the working duplicates that replaced them. Nothing
+  here ever deletes an entity because a read failed, which is deliberate, and
+  this is the cost of it. `review` → `no_longer_exported` now lists each one with
+  the id it is still looking for, so a stale entity can be told from a channel
+  that will come back. They are safe to delete by hand; the README says where.
+
 ## 0.9.0-beta.1 - 2026-11-26
 
 A pre-release carrying the push channel and the diagnostics download. It is only
