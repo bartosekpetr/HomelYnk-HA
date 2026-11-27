@@ -330,6 +330,15 @@ async def test_the_whole_payload_is_assembled_from_a_coordinator(monkeypatch):
     hass.data = {"wiser_for_knx": {entry.entry_id: coordinator}}
     hass.states.get.return_value = SimpleNamespace(state="on")
 
+    # Both registries are reached as `async_get(hass)` then
+    # `async_entries_for_config_entry(registry, ...)`, so both halves have to be
+    # stubbed. The real `async_get` raises "registry not set up" on a hass whose
+    # `data` this test owns - which is what happens whenever Home Assistant is
+    # genuinely installed (CI), while conftest's module-level MagicMock stands in
+    # for it when it is not (a local run without HA).
+    registry = SimpleNamespace()
+    monkeypatch.setattr(diagnostics.er, "async_get", lambda hass: registry)
+    monkeypatch.setattr(diagnostics.dr, "async_get", lambda hass: registry)
     monkeypatch.setattr(
         diagnostics.er,
         "async_entries_for_config_entry",
