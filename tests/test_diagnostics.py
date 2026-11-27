@@ -388,3 +388,89 @@ async def test_the_whole_payload_is_assembled_from_a_coordinator(monkeypatch):
     assert payload["controller"]["health"]["device_id"] == REDACTED
     assert payload["controller"]["push"]["callback_path"] == REDACTED
     assert payload["controller"]["backup"]["last_backup"] is None
+
+
+# A widget that is recreated rather than edited publishes new ids, so the
+# entities built from the old ones stay in the registry under the names they had.
+# These are real-shaped ids because that is what tells them from the entry id.
+_LIVE_FUNC = "3f2a1c44-0001-4000-8000-00000000aaaa"
+_LIVE_DP = "3f2a1c44-0002-4000-8000-00000000bbbb"
+_GONE_FUNC = "9e8d7c66-0003-4000-8000-00000000cccc"
+_GONE_DP = "9e8d7c66-0004-4000-8000-00000000dddd"
+
+
+def _row(entity_id, unique_id, name, state="unavailable"):
+    return {
+        "entity_id": entity_id,
+        "unique_id": unique_id,
+        "original_name": name,
+        "state": state,
+    }
+
+
+def test_an_entity_whose_datapoint_is_no_longer_exported_is_called_out():
+    """The one case a screenshot cannot tell from a broken entity."""
+    entities = [
+        _row("sensor.living_room", f"wiser_for_knx_01JAB_{_LIVE_DP}", "Live", "21.5"),
+        _row("sensor.living_room_old", f"wiser_for_knx_01JAB_{_GONE_DP}", "Old"),
+        _row("light.hall", f"wiser_for_knx_01JAB_{_GONE_FUNC}", "Hall"),
+    ]
+    stale = entity_review(entities, {_LIVE_FUNC, _LIVE_DP})["no_longer_exported"]
+    assert [item["entity_id"] for item in stale] == [
+        "sensor.living_room_old",
+        "light.hall",
+    ]
+    # The id is what ties it back to the widget that went away
+    assert stale[0]["missing_id"] == _GONE_DP
+    assert stale[0]["name"] == "Old"
+    assert stale[0]["state"] == "unavailable"
+
+
+def test_a_scene_button_is_matched_on_the_datapoint_in_the_middle_of_its_id():
+    """Its unique id ends in the enum member, so the tail alone would miss it."""
+    entities = [
+        _row(
+            "button.scene_1", f"wiser_for_knx_01JAB_{_LIVE_DP}_1", "Scene 1", "unknown"
+        ),
+        _row("button.old_scene_3", f"wiser_for_knx_01JAB_{_GONE_DP}_3", "Old scene 3"),
+    ]
+    stale = entity_review(entities, {_LIVE_DP})["no_longer_exported"]
+    assert [item["entity_id"] for item in stale] == ["button.old_scene_3"]
+
+
+def test_the_entities_on_the_controller_device_are_never_stale():
+    """They carry no controller id and outlive any export."""
+    entities = [
+        _row("sensor.last_backup", "wiser_for_knx_01JAB_last_backup", "Last backup"),
+        _row("sensor.push", "wiser_for_knx_01JAB_push", "Push", "live"),
+        _row("button.rescan", "wiser_for_knx_01JAB_rescan", "Rescan devices"),
+        _row("sensor.load", "wiser_for_knx_01JAB_load_1m", "CPU load (1 min)", "0.4"),
+        _row("sensor.exported", "wiser_for_knx_01JAB_datapoints", "Exported", "41"),
+    ]
+    assert entity_review(entities, {_LIVE_DP})["no_longer_exported"] == []
+
+
+def test_a_poll_that_knows_no_ids_reports_nothing_as_stale():
+    """A cold or failed poll is not evidence: everything would look stale."""
+    entities = [_row("sensor.old", f"wiser_for_knx_01JAB_{_GONE_DP}", "Old")]
+    assert entity_review(entities, set())["no_longer_exported"] == []
+    assert entity_review(entities)["no_longer_exported"] == []
+
+
+def test_the_payload_ranks_a_stale_entity_against_the_live_export():
+    functions = _func(
+        _LIVE_FUNC,
+        ["urn:knx:fct.gauge"],
+        _dp(_LIVE_DP, "dic:dpa.417.65", "urn:knx:dpt.generic", value="21.5"),
+        title="W lab temperature",
+    )
+    payload = _payload(
+        functions,
+        entities=[
+            _row("sensor.w_lab", f"wiser_for_knx_01JAB_{_LIVE_DP}", "W lab", "21.5"),
+            _row("sensor.w_lab_2", f"wiser_for_knx_01JAB_{_GONE_DP}", "W lab"),
+        ],
+    )
+    stale = payload["review"]["no_longer_exported"]
+    assert [item["entity_id"] for item in stale] == ["sensor.w_lab_2"]
+    assert stale[0]["missing_id"] == _GONE_DP

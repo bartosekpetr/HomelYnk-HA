@@ -806,7 +806,7 @@ Asymmetries on it:
 | `switch.py` | the function's datapoints, or one datapoint | `is_on`; writes `on`/`off` | coordinator |
 | `sensor.py` | backup manager state; health coordinator; one datapoint | `Last backup` (timestamp + attributes), 7 health sensors and 2 export counts (all `DIAGNOSTIC`), and a value per readable datapoint with a role-derived unit, device class and enum options | HA entity API |
 | `button.py` | — | two `CONFIG` buttons, plus one per scene number | coordinator / backup manager |
-| `diagnostics.py` | the entity and device registries, `hass.states`, the coordinator (data, `entity_plan`, poll state, health, push, backup manager), the entry's `data`/`options` | one JSON payload: `export` counts, `plan` counts, a `review` block (composites that were not viable, datapoints with no role or no title, unavailable/unknown/unnamed/`_2`-suffixed entities), then every function, datapoint and registry row — redacted | HA diagnostics API (on demand, never polled) |
+| `diagnostics.py` | the entity and device registries, `hass.states`, the coordinator (data, `entity_plan`, poll state, health, push, backup manager), the entry's `data`/`options` | one JSON payload: `export` counts, `plan` counts, a `review` block (composites that were not viable, datapoints with no role or no title, unavailable/unknown/unnamed/`_2`-suffixed entities, and entities naming a function or datapoint the controller has stopped exporting), then every function, datapoint and registry row — redacted | HA diagnostics API (on demand, never polled) |
 
 ---
 

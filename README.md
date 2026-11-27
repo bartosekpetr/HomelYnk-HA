@@ -268,6 +268,14 @@ distinction is worth knowing before you rename anything:
   see above). Nothing is ever deleted because a read failed, so entities come back by themselves.
   **Unknown** means the channel is published but has never carried a value — normal for a scene
   button, a trigger, or an object the bus has not reported yet.
+- **An entity that stays unavailable for ever, next to a working duplicate of itself.** Deleting a
+  widget, or **recreating one instead of editing it**, makes the controller publish new channel
+  ids, and the entities built from the old ones are left behind — permanently unavailable, under
+  the names they had at the time. That is the price of never deleting an entity on a failed read.
+  They are safe to remove: open the entity and use **Delete**, or delete the device if the whole
+  widget went. The diagnostics file lists them for you under `review` → `no_longer_exported`, so
+  you do not have to guess which unavailable entity is stale and which is a channel that will
+  come back.
 
 To report any of this: **Settings** → **Devices & services** → **Wiser for KNX** → the ⋮ menu →
 **Download diagnostics**, and attach the file to an issue. It lists every exported function and

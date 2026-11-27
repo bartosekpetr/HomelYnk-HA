@@ -13,7 +13,8 @@ ended up as.
 `review` is the part to read first: it pre-computes the handful of things that
 make an entity "look wrong" (a composite that was not viable, a datapoint with
 no role, a datapoint with no title, an unavailable or unknown state, an entity
-id with a `_2` suffix) so a reader does not have to cross-reference the rest.
+id with a `_2` suffix, an entity naming an id the controller has stopped
+exporting) so a reader does not have to cross-reference the rest.
 
 Pure module: no Home Assistant imports, so it stays unit-testable.
 """
@@ -61,6 +62,14 @@ REDACT_KEYS = frozenset(
 # same slug. `_2` on this installation would contradict the premise that the old
 # config entry was removed before the current one was added.
 _SUFFIXED = re.compile(r"_(\d)$")
+
+# A controller function or datapoint id. Every unique id this integration mints
+# is `wiser_for_knx_<entry id>_<controller id>`, with a scene button adding the
+# enum member after it; the entry id is plain hex, so a dashed id in there is
+# always the controller's own and can be looked up in the export.
+_CONTROLLER_ID = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
 
 
 def redact(value: Any) -> Any:
@@ -188,7 +197,53 @@ def _unique_id_suffix(unique_id: Any) -> str | None:
     return unique_id.rsplit("_", 1)[-1]
 
 
-def entity_review(entities: list[dict[str, Any]]) -> dict[str, Any]:
+def stale_entities(
+    entities: list[dict[str, Any]], known_ids: set[str]
+) -> list[dict[str, Any]]:
+    """Return registry rows naming a function or datapoint that is no longer exported.
+
+    Nothing in this integration ever removes an entity, deliberately: a datapoint
+    missing from a poll is a failed read, not a deletion. The cost of that choice
+    is this case, and it is the one thing a screenshot cannot tell apart from a
+    broken entity - a widget that was **recreated rather than edited** publishes
+    new ids, so the entities built from the old ones stay in the registry for
+    ever, permanently unavailable, under the names they were given at the time,
+    sitting next to the working duplicates that replaced them. Deleting them is
+    the user's call (Home Assistant offers it on an unavailable entity), so this
+    only reports.
+
+    An empty export is not evidence: a cold or failed poll knows no ids at all,
+    and every entity would look stale.
+    """
+    if not known_ids:
+        return []
+    rows = []
+    for entity in entities:
+        unique_id = entity.get("unique_id")
+        if not isinstance(unique_id, str):
+            continue
+        referenced = [
+            part for part in unique_id.split("_") if _CONTROLLER_ID.match(part)
+        ]
+        # No controller id in it at all is one of the entities on the controller
+        # device itself (health, backup, push, the export counts), which outlive
+        # any export.
+        if not referenced or any(ref in known_ids for ref in referenced):
+            continue
+        rows.append(
+            {
+                "entity_id": entity.get("entity_id"),
+                "name": entity.get("name") or entity.get("original_name"),
+                "state": entity.get("state"),
+                "missing_id": referenced[0],
+            }
+        )
+    return rows
+
+
+def entity_review(
+    entities: list[dict[str, Any]], known_ids: set[str] | None = None
+) -> dict[str, Any]:
     """Return the entities worth looking at first, by the symptoms reported."""
     unavailable, unknown, unnamed, suffixed, disabled = [], [], [], [], []
     for entity in entities:
@@ -216,6 +271,7 @@ def entity_review(entities: list[dict[str, Any]]) -> dict[str, Any]:
         "unnamed": unnamed,
         "numeric_suffix": suffixed,
         "disabled": disabled,
+        "no_longer_exported": stale_entities(entities, known_ids or set()),
     }
 
 
@@ -306,7 +362,10 @@ def build_diagnostics(
                 "by_domain": dict(sorted(by_domain.items())),
                 "devices": devices,
             },
-            "review": {**_plan_review(rows), **entity_review(entities)},
+            "review": {
+                **_plan_review(rows),
+                **entity_review(entities, set(functions or {}) | set(datapoints or {})),
+            },
             "functions": rows,
             "entities": entity_rows,
         }
