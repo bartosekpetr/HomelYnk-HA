@@ -1,22 +1,22 @@
 # Architecture
 
-Diagram current as of `47929fa` — 2026-11-26. Kept current by the diagram-upkeep routine
-(SMA-213). **Two corrections, and the first is to this page's own contract.** 🪤 The previous
-baseline named `16941a8`, and that sha is no longer reachable from `main`: integrating
-v0.9.0-beta.1 rebased it away (the diagram commit itself came back as `fdc87e0`). So
-`git log 16941a8..HEAD` still works in a checkout holding the old object and **errors in a fresh
-clone** — the same dangling-sha trap `AGENTS.md` §6 records for the skillset, reproduced here by
-this page. The baseline is re-pointed to the commit this run actually checked from, and the lesson
-is the one already written down: a sha in a citation is only stable until someone rewrites history.
-Second, `diagnostics.py` / `diagnostics_utils.py` arrived in `a086d28`, which gave them a
-responsibility row ([§3](#3-components-and-responsibilities)) and an in/out row
-([§5](#5-per-component-in--out)) but put them in **neither master diagram**, in no edge table and
-in no confidence row — a component this page claimed to draw and did not. Both master diagrams now
-carry it as edges **59–62**, and [§8](#8-confidence) rates them. Range checked:
-`fdc87e0..47929fa`, which also contains `39f3bd3` (the reboot measurement, already folded into
-§7 and §8 by that commit), two new read-only coordinator properties and `plan.py`'s
-`_COMPOSITE_PLATFORMS` → `COMPOSITE_PLATFORMS` rename — accessors and a visibility change that
-exist so diagnostics can read them, not behaviour, so no existing edge moved.
+Diagram current as of `52a8bc6` — 2026-11-27. Kept current by the diagram-upkeep routine
+(SMA-236). **One correction, and it is to the claim the previous revision added one day earlier.**
+That revision drew the diagnostics download as edges **59–62** and described edge 62 — the only
+egress in this system that goes to a human rather than to the controller — as *a JSON file the
+user attaches to a public issue*, gated by `redact()`. The gate half was right; the destination
+half was not. 🪤 `redact()` matches **by key name**, so it cannot see a private value riding out
+inside a field it keeps, and this payload keeps several **on purpose**: every datapoint and
+function `title` is an installer-chosen KNX group object name, each device row carries that name
+plus the HA `area_id` that `entity.py` suggests from the controller's own room name, and every
+current value is in there. Those fields *are* the diagnosis — a leftover datapoint entity is named
+from its title — so they cannot be redacted away without destroying the reason the file exists.
+`AGENTS.md` §5–§6 settled the consequence in `52a8bc6`, the one commit in the range that is not
+this page: a diagnostics file is safe to send **privately** and is not safe to paste in public,
+and the only thing enforcing that is a sentence in `README.md`. Corrected in both master diagrams,
+in edge 62 and in [§3](#3-components-and-responsibilities); [§8](#8-confidence) carries what the
+payload deliberately contains as its own row. Range checked: `47929fa..52a8bc6`. No component, no
+responsibility and no edge direction moved — **no code changed in that range at all.**
 
 The revision before this one is where push arrived, and that remains the current shape:
 `push.py` and `push_utils.py` are components, the controller has an **inbound** edge to Home
@@ -51,8 +51,10 @@ summarised here from `AGENTS.md` and [docs/controller-api.md](controller-api.md)
 added on **2026-11-24** — the `apit3` component split and the plaintext callback secret — are
 second-hand in the same way: both were measured on the skillset's reference controller on
 2026-11-22 and only written up on 2026-11-23, and they are here because they are the *mechanism*
-under two rows that already existed. Nothing in either revision touched a controller, a Home
-Assistant or the network.
+under two rows that already existed. The row added on **2026-11-27** is a plain read of
+`diagnostics.py` and `diagnostics_utils.py` against the leak class `AGENTS.md` §5 records from the
+skillset's own tracked tree, dated 2026-11-26. Nothing in any of these revisions touched a
+controller, a Home Assistant or the network.
 
 The single most important thing on this page: **the integration owns almost nothing of what a
 user sees.** Which devices exist, which channels are exported, what a value means and whether a
@@ -160,9 +162,13 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |   | Reads both registries, hass.states and the coordinator;     |                   |
  |   | puts each decision next to its result: category and         |                   |
  |   | viability, dpa archetype, role, platform, entity, state.    |                   |
- |   | THE ONLY EGRESS: this file goes into a public bug report.   |                   |
- |   | redact() gates it BY KEY NAME; api_base is safe only        |                   |
- |   | because api.py regex-guards it to a path (no host in it).   |                   |
+ |   | THE ONLY EGRESS, and the only one not to the controller.    |                   |
+ |   | It carries YOUR OWN group object names, room names and      |                   |
+ |   | values on purpose - they are the diagnosis - so it is a     |                   |
+ |   | PRIVATE send, not a public paste. redact() gates it BY KEY  |                   |
+ |   | NAME and cannot see a label inside a field it keeps;        |                   |
+ |   | api_base is safe only because api.py regex-guards it to a   |                   |
+ |   | path (no host in it). The README sentence is the only gate. |                   |
  |   | diagnostics_utils.py: shaping, review, redact (pure)        |                   |
  |   +-------------------------------------------------------------+                   |
  |   const.py (39) supplies every constant above; identity.py (31) the stable ids;     |
@@ -285,7 +291,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 59 | HA diagnostics API | `diagnostics.async_get_config_entry_diagnostics` | pull, **on demand only** — a human clicking *Download diagnostics*. Never polled, never scheduled, and the only edge on this page a user triggers by hand after setup |
 | 60 | entity registry + device registry + `hass.states` | `diagnostics.py` | read. The registry is the authority on **what exists**, which is the one thing a screenshot of the device page cannot distinguish from a fresh install: an entity that was created and then stopped being exported is still a row |
 | 61 | `coordinator` | `diagnostics.py` | read-only: `data`, `entity_plan`, health, push, the backup manager, and `server_errors` / `structure_age` — two properties that exist for this edge and no other. Reads nothing from the controller, so a diagnostics download cannot disturb a poll |
-| 62 | `diagnostics_utils.build_diagnostics` | a JSON file the user attaches to a public issue | **egress, and the only one on this page that leaves for a human rather than the controller.** `redact()` is the entire gate, and it matches **by key name** — see [§8](#8-confidence) for why `api_base` survives that design and `host` does not have to |
+| 62 | `diagnostics_utils.build_diagnostics` | a JSON file the user sends to a maintainer — **privately** | **egress, and the only one on this page that leaves for a human rather than the controller.** `redact()` is the entire gate and it matches **by key name**, so it cannot see what rides out inside a field it *keeps*: every datapoint and function `title` is an installer-chosen KNX group object name, each device row carries that name and the HA `area_id` suggested from the controller's room, and every current value is there. That is deliberate — the title is what a leftover datapoint entity is **named** from — so the file is safe privately and **not** safe to paste in public, and the only thing saying so is a sentence in `README.md`. See [§8](#8-confidence) for both halves: why `api_base` survives a key-name gate, and what the payload deliberately contains |
 
 ---
 
@@ -347,7 +353,7 @@ flowchart TB
     end
   end
 
-  DLOAD["Downloaded JSON file<br/>attached to a public bug report<br/>redact() is the only gate"]
+  DLOAD["Downloaded JSON file - a PRIVATE send<br/>carries the installation's own group object<br/>names, room names and values ON PURPOSE<br/>redact() gates BY KEY NAME and cannot see them"]
 
   subgraph CTRL["Wiser for KNX controller - not ours"]
     WK["GET /.well-known/knx<br/>unauthenticated, returns api.base"]
@@ -458,7 +464,7 @@ flowchart TB
   DR -->|"controller plus one per function"| DIAG
   COORD -->|"data, entity_plan, health, push,<br/>server_errors, structure_age"| DIAG
   DIAG --> DU
-  DU ==>|"redacted JSON; THE ONLY EGRESS,<br/>and the only edge that leaves<br/>for a human, not the controller"| DLOAD
+  DU ==>|"JSON redacted BY KEY NAME; THE ONLY EGRESS,<br/>and the only edge that leaves<br/>for a human, not the controller"| DLOAD
 
   TOUCH --> EXPORT
   EXPORT -->|"functions first, datapoints 15 s plus later"| TP
@@ -499,7 +505,7 @@ flowchart TB
 | `button.py` | **Create backup** and **Rescan devices** (both `EntityCategory.CONFIG`), plus one button per KNX scene number | scheduling | manual backup still available via the service; rescan and scene recall have no replacement |
 | `push.py` | the push subscription's whole life: the webhook Home Assistant answers on, the per-entry signing secret, verifying every frame, re-asserting the subscription, and switching the poll between its backstop and `scan_interval` | deciding *state* (that is the coordinator) and decoding a value (that is `datapoints.py`) | the integration polls every `scan_interval` and nothing else, which is exactly v0.8.0's behaviour |
 | `push_utils.py` | the pure parts of that: the `X-Callback-Signature` construction, the frame decode, the subscribe body, the secret, orphan matching | anything needing Home Assistant | — |
-| `diagnostics.py` / `diagnostics_utils.py` | the only read-only consumer of the whole graph: HA's **Download diagnostics** for an entry, assembling the entity and device registries, the coordinator's state and the entity plan into one payload, with every function's category and composite viability, every datapoint's archetype, role and platform, and the redaction that keeps password, user, host, MAC/serial and callback path out of a file users attach to issues. Pure half unit-tested | any decision — it reports the ones already taken, and writes nothing | the project loses its only way to see what an installation actually became; a report of a wrong entity goes back to being a screenshot |
+| `diagnostics.py` / `diagnostics_utils.py` | the only read-only consumer of the whole graph: HA's **Download diagnostics** for an entry, assembling the entity and device registries, the coordinator's state and the entity plan into one payload, with every function's category and composite viability, every datapoint's archetype, role and platform, and the redaction that keeps password, user, host, MAC/serial and callback path out of the file. It does **not** own the other half of that: group object names, room names and current values stay in, because they are the diagnosis, which is what makes the download a private send rather than a public attachment. Pure half unit-tested | any decision — it reports the ones already taken, and writes nothing | the project loses its only way to see what an installation actually became; a report of a wrong entity goes back to being a screenshot |
 | `const.py` | every tunable and every KNX URN | behaviour | — |
 
 ### Explicitly not part of this system
@@ -971,8 +977,9 @@ controller.
 | The v0.7.x → v0.8.x upgrade path | **never run** | v0.8.0 stable is the version every existing user will take it on, and no installation has upgraded across it. The one HA-side data point is a fresh v0.8.0-beta.2 install through HACS on 2026-11-22, reported working — no entity list was taken |
 | Everything HA-runtime: flow steps, registries, scheduler, services, backup hooks, migration | **inferred from code** | `tests/conftest.py` mocks HA when it is not installed, so these are reasoned from the code and from the manual checklist in [docs/development.md](development.md), not asserted by the suite in every environment |
 | Edges 59–61: diagnostics reads the registries, `hass.states` and the coordinator | **inferred from code**, pure half unit-tested | `tests/test_diagnostics.py` covers the shaping, the `review` block and the redaction against hand-built inputs. The three *reads* need a running Home Assistant — `er.async_entries_for_config_entry`, `dr.async_entries_for_config_entry` and `hass.states.get` are all mocked in the suite — so **no diagnostics file has ever been produced by a real Home Assistant.** This is the file SMA-216 asks the owner for, which makes it the one unexercised path the project is actively depending on |
-| Edge 62: `redact()` keeps the owner's host, credentials, MAC/serial and callback path out of the downloaded file | **inferred from code**, unit-tested | the gate is a **key-name allowlist** (`password`, `backup_password`, `username`, `host`, `certificate_fingerprint`, `unique_id`, `device_id`, `callback_path`, `secret`), applied at any depth. 🪤 A key-name gate is exactly the shape `AGENTS.md` §5 warns about — "a list is not a gate" — because a value can ride out under a key nobody listed, and the entry's `data` is passed through wholesale. The one field that could re-introduce the host is **`api_base`, which is not redacted**; it is safe only because `api.py`'s setter regex-guards it to a plain path and rejects anything containing `//`, so it holds `/api/w4knx/3rdparty/v1` and never a URL. **That is a guarantee enforced in a different file from the redactor, and no test pins the pair** — checked by reading both on 2026-11-26, not by running them. `port` is unredacted by choice. The signing secret is not reachable from here at all: the push manager does not expose it |
-| Edge 62 is the only egress from this system that is **not** to the controller | **inferred from code** | everything else crosses the boundary at the bottom of §1 to a device on the owner's LAN. This one crosses to a GitHub issue, which is public and permanent, and nothing in Home Assistant warns a user of that before the file downloads. Reasoned from the code path; no file has been produced, so what a real payload contains has never been inspected |
+| Edge 62: `redact()` keeps the owner's host, credentials, MAC/serial and callback path out of the downloaded file | **inferred from code**, unit-tested | the gate is a **key-name blocklist** (`password`, `backup_password`, `username`, `host`, `certificate_fingerprint`, `unique_id`, `device_id`, `callback_path`, `secret`), applied at any depth. 🪤 A key-name gate is exactly the shape `AGENTS.md` §5 warns about — "a list is not a gate" — because a value can ride out under a key nobody listed, and the entry's `data` is passed through wholesale. The one field that could re-introduce the host is **`api_base`, which is not redacted**; it is safe only because `api.py`'s setter regex-guards it to a plain path and rejects anything containing `//`, so it holds `/api/w4knx/3rdparty/v1` and never a URL. **That is a guarantee enforced in a different file from the redactor, and no test pins the pair** — checked by reading both on 2026-11-26, not by running them. `port` is unredacted by choice. The signing secret is not reachable from here at all: the push manager does not expose it |
+| Edge 62's payload deliberately carries the installation's own group object names, room names and current values, and a key-name gate structurally cannot see them | **inferred from code** for the content, on a **leak class measured 2026-11-26** for the blind spot | read off `diagnostics_utils.py` and `diagnostics.py` on 2026-11-27: every datapoint row keeps `title` and `value`, every function row keeps `title` and `location_id`, each device row keeps `name` (`name_by_user or name`) and `area_id` — which `entity.py` suggests from the controller's own room name — and each entity row keeps its name and state. None of those keys is in `REDACT_KEYS`, and none could be: the title is **the** diagnosis, because a leftover datapoint entity is named from it. The blind spot is not hypothetical. The skillset's own artefacts carried three real group-object names in twelve places while *both* its gates passed them — the value stage keyed on credential-shaped facts and could not look at a label, and because it reads raw bytes a JSON `\uXXXX` escape hid one of the three from it entirely (`AGENTS.md` §5–§6, 2026-11-26). So the honest statement of this edge is: the redactor is a credential gate, the label gate is a **sentence in `README.md`** asking the user to read the file first, and `AGENTS.md` states the rule as safe-privately / not-safe-in-public. This repo's own tracked tree was swept on the same date and carries no house label |
+| Edge 62 is the only egress from this system that is **not** to the controller | **inferred from code** | everything else crosses the boundary at the bottom of §1 to a device on the owner's LAN. This one crosses to a human, and nothing in Home Assistant warns a user what is in the file before it downloads — see the row above for what that is. Reasoned from the code path; no file has been produced by a real Home Assistant, so what a real payload contains has never been inspected |
 
 ### Never probed
 
