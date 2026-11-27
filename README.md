@@ -250,6 +250,24 @@ URL; fix that under **Settings** → **System** → **Network**, or turn *Instan
 
 **A shutter opens when you ask it to close.** KNX counts a shutter's position as how far it has travelled *down* (0 % = fully up), Home Assistant as how far it is *open*, so the integration inverts it. Actuators configured the other way round will read inverted; please open an issue with the group object's value at both end positions.
 
+**My light is tunable white and Home Assistant offers no colour temperature.** It is not
+missing from the integration — the controller does not publish colour temperature at all. Its
+widget catalogue was enumerated on a real unit: across all 47 widget types and 269 channel slots,
+the only colour channels are the RGB object of the **RGB dimmer** widget and the four per-colour
+channels of the **RGBW dimmer**. There is no tunable-white or colour-temperature slot on any
+widget, including the DALI group widgets, which publish only a switch and a brightness value —
+so no Touch configuration can produce one, and there is nothing for the integration to read or
+write. On/off, brightness, RGB and RGBW are the full set.
+
+If your actuator's colour temperature is a KNX group object, control it with Home Assistant's own
+[KNX integration](https://www.home-assistant.io/integrations/knx/) talking straight to the bus.
+It runs happily alongside this one: use this integration for everything the controller exports
+and the KNX integration for the group objects it does not. (You can instead wire the colour
+temperature object to a spare channel of a multi-channel **Dimmer** widget, if your actuator takes
+it as a 0–100 % value — but the controller publishes that channel as an ordinary second dimmable
+light, indistinguishable from a brightness channel, so you would get a second light entity whose
+brightness is really the colour temperature. The KNX integration is the cleaner route.)
+
 **An entity has an odd name, or a device is a pile of sensors instead of one light.**
 Both are usually the integration following the controller rather than a fault, and the
 distinction is worth knowing before you rename anything:
