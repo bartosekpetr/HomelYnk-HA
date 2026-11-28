@@ -74,12 +74,23 @@ PUSH_RESUBSCRIBE_DEBOUNCE = 60  # seconds
 # size, so the size is a fallback and not a prediction.
 PUSH_SUBSCRIBE_CHUNK = 100
 
-# Values of the "Push" diagnostic sensor
+# Values of the "Push" diagnostic sensor.
+# None of these may be one of Home Assistant's reserved state strings. `failed`
+# read `unavailable` through v0.9.0, which was a mistake worth remembering: a state
+# of "unavailable" is how Home Assistant renders an entity that is *not being
+# provided at all*, so a push channel that had merely failed to register looked
+# exactly like a broken entity - and the two want opposite responses. Worse, the
+# reason it had failed was in `extra_state_attributes`, which Home Assistant
+# drops for a genuinely unavailable entity, so the reader could not even tell
+# which case they were in from the attributes. Measured against HA 2026.2.3:
+# `Entity.__async_calculate_state` keeps extra attributes only when `available`.
 PUSH_STATUS_OFF = "off"  # turned off in the options
-PUSH_STATUS_UNAVAILABLE = "unavailable"  # could not be set up; polling at full speed
+PUSH_STATUS_FAILED = "failed"  # could not be set up; polling at full speed
 PUSH_STATUS_PENDING = "pending"  # subscribed, no callback seen yet
 PUSH_STATUS_LIVE = "live"  # callbacks arriving; the poll is the slow backstop
 PUSH_STATUS_DEGRADED = "degraded"  # delivery stopped; polling at full speed again
+# Home Assistant renders these two itself; a sensor must never report one as a value.
+HA_RESERVED_STATES = ("unavailable", "unknown")
 
 # Management API (backups, device info) and backup settings
 MGMT_API_BASE = "/api/management/v1"

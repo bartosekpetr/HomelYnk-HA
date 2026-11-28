@@ -44,10 +44,10 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     DOMAIN,
     PUSH_STATUS_DEGRADED,
+    PUSH_STATUS_FAILED,
     PUSH_STATUS_LIVE,
     PUSH_STATUS_OFF,
     PUSH_STATUS_PENDING,
-    PUSH_STATUS_UNAVAILABLE,
 )
 from .coordinator import WiserKnxDataUpdateCoordinator, WiserKnxHealthCoordinator
 from .datapoints import (
@@ -293,9 +293,17 @@ class WiserKnxPushSensor(SensorEntity):
     200, so "push silently stopped and we are back to polling" would otherwise
     be invisible. `live` means callbacks are arriving and the poll has slowed to
     its backstop; `pending` means subscribed but nothing delivered yet;
-    `degraded` means a poll caught values no callback reported; `unavailable`
+    `degraded` means a poll caught values no callback reported; `failed`
     means it could not be set up at all - and all three of those poll at the
     configured interval, exactly as the integration did before push existed.
+
+    None of those values may be one of Home Assistant's own reserved state
+    strings, and `failed` is named that way because it once was not: it read
+    `unavailable` through v0.9.0, which is also how Home Assistant renders an
+    entity it is not being given a state for. The two look identical in the UI
+    and in a screenshot, and they call for opposite responses - so the one state
+    that says "look at the reason attribute" was the one state whose attributes
+    a reader could not trust. `tests/test_platform_entities.py` pins this.
     """
 
     _attr_has_entity_name = True
@@ -304,7 +312,7 @@ class WiserKnxPushSensor(SensorEntity):
     _attr_device_class = SensorDeviceClass.ENUM
     _attr_options: ClassVar[list[str]] = [
         PUSH_STATUS_OFF,
-        PUSH_STATUS_UNAVAILABLE,
+        PUSH_STATUS_FAILED,
         PUSH_STATUS_PENDING,
         PUSH_STATUS_LIVE,
         PUSH_STATUS_DEGRADED,

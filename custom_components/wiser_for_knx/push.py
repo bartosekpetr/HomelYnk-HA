@@ -52,10 +52,10 @@ from .const import (
     PUSH_RETRY_INTERVAL,
     PUSH_RETRY_MAX_INTERVAL,
     PUSH_STATUS_DEGRADED,
+    PUSH_STATUS_FAILED,
     PUSH_STATUS_LIVE,
     PUSH_STATUS_OFF,
     PUSH_STATUS_PENDING,
-    PUSH_STATUS_UNAVAILABLE,
     PUSH_SUBSCRIBE_CHUNK,
 )
 from .push_utils import (
@@ -122,7 +122,7 @@ class WiserKnxPushManager:
         self._wanted: set[str] = set()
         self._registered = False
 
-        self._status = PUSH_STATUS_OFF if not enabled else PUSH_STATUS_UNAVAILABLE
+        self._status = PUSH_STATUS_OFF if not enabled else PUSH_STATUS_FAILED
         self._reason: str | None = None
         self._frames = 0
         self._rejected = 0
@@ -202,7 +202,7 @@ class WiserKnxPushManager:
                 "delivery daemon; see docs/controller-api.md",
                 reason,
             )
-        elif status == PUSH_STATUS_UNAVAILABLE:
+        elif status == PUSH_STATUS_FAILED:
             _LOGGER.warning(
                 "Push could not be set up (%s); the integration keeps polling at "
                 "the configured interval instead",
@@ -239,7 +239,7 @@ class WiserKnxPushManager:
         self._secret = None
         # Set directly rather than through _set_status: an unload is not a
         # failure and has no business logging a warning about one.
-        self._status = PUSH_STATUS_OFF if not self.enabled else PUSH_STATUS_UNAVAILABLE
+        self._status = PUSH_STATUS_OFF if not self.enabled else PUSH_STATUS_FAILED
         self._reason = None if not self.enabled else "unloaded"
         self._notify()
 
@@ -484,9 +484,7 @@ class WiserKnxPushManager:
             self._cancel_pending_retry()
             url = self._resolve_url()
             if url is None:
-                self._set_status(
-                    PUSH_STATUS_UNAVAILABLE, "no reachable Home Assistant URL"
-                )
+                self._set_status(PUSH_STATUS_FAILED, "no reachable Home Assistant URL")
                 self.coordinator.async_set_push_cadence(False)
                 self._schedule_retry()
                 return
@@ -495,7 +493,7 @@ class WiserKnxPushManager:
             await self._async_drop_subscriptions()
             ids = sorted(self._wanted)
             if not ids:
-                self._set_status(PUSH_STATUS_UNAVAILABLE, "no datapoints exported yet")
+                self._set_status(PUSH_STATUS_FAILED, "no datapoints exported yet")
                 self.coordinator.async_set_push_cadence(False)
                 self._schedule_retry()
                 return
@@ -503,7 +501,7 @@ class WiserKnxPushManager:
             try:
                 subscription_ids = await self._async_subscribe(ids, url, secret)
             except Exception as err:  # noqa: BLE001 - every failure means "keep polling"
-                self._set_status(PUSH_STATUS_UNAVAILABLE, f"{type(err).__name__}")
+                self._set_status(PUSH_STATUS_FAILED, f"{type(err).__name__}")
                 _LOGGER.debug("Push subscription failed: %s", err)
                 self.coordinator.async_set_push_cadence(False)
                 self._schedule_retry()

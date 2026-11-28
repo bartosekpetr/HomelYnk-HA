@@ -23,11 +23,22 @@ from homeassistant.const import LIGHT_LUX
 
 from custom_components.wiser_for_knx.binary_sensor import WiserKnxBinarySensor
 from custom_components.wiser_for_knx.climate import WiserKnxClimate
+from custom_components.wiser_for_knx.const import (
+    HA_RESERVED_STATES,
+    PUSH_STATUS_DEGRADED,
+    PUSH_STATUS_FAILED,
+    PUSH_STATUS_LIVE,
+    PUSH_STATUS_OFF,
+    PUSH_STATUS_PENDING,
+)
 from custom_components.wiser_for_knx.cover import WiserKnxCover
 from custom_components.wiser_for_knx.light import WiserKnxLight
 from custom_components.wiser_for_knx.lock import WiserKnxLock
 from custom_components.wiser_for_knx.select import WiserKnxSelect
-from custom_components.wiser_for_knx.sensor import WiserKnxDatapointSensor
+from custom_components.wiser_for_knx.sensor import (
+    WiserKnxDatapointSensor,
+    WiserKnxPushSensor,
+)
 
 
 def _dp(dp_id, dpa, dpt, writable=False, **kwargs):
@@ -536,3 +547,60 @@ def test_a_datapoint_entity_is_unavailable_while_it_is_not_published():
     entity.coordinator.data["functions"]["f1"]["datapoints"] = {}
     assert entity.available is False
     assert entity.native_value is None
+
+
+def test_no_push_status_collides_with_a_reserved_home_assistant_state():
+    """A diagnostic value must never be a state Home Assistant renders itself.
+
+    This is a regression test for a released defect rather than a style rule.
+    The "could not be set up" status read `unavailable` in v0.9.0, which is the
+    same string Home Assistant writes for an entity it has no state for - so a
+    push channel that had failed to register was indistinguishable, in the UI
+    and in a screenshot, from a broken entity. The two call for opposite
+    responses, and the attributes could not settle it either: Home Assistant
+    keeps `extra_state_attributes` only while the entity is available, so the
+    `reason` that would have named the failing step is exactly what a reader
+    cannot rely on seeing. It cost a round trip with the owner to find out.
+    """
+    coordinator = MagicMock()
+    sensor = WiserKnxPushSensor(coordinator, "entry1")
+    # Read through the instance: Home Assistant's cached-property metaclass
+    # turns `_attr_options` into a descriptor, so the class attribute is one.
+    assert set(sensor.options) == {
+        PUSH_STATUS_OFF,
+        PUSH_STATUS_FAILED,
+        PUSH_STATUS_PENDING,
+        PUSH_STATUS_LIVE,
+        PUSH_STATUS_DEGRADED,
+    }
+    for status in sensor.options:
+        assert status not in HA_RESERVED_STATES, (
+            f"the push sensor can report {status!r}, which Home Assistant "
+            "renders as an entity that is not being provided at all"
+        )
+
+    # Every status the manager can hold is one the sensor is allowed to report:
+    # an enum sensor whose value is outside its options raises in Home Assistant.
+    for status in (
+        PUSH_STATUS_OFF,
+        PUSH_STATUS_FAILED,
+        PUSH_STATUS_PENDING,
+        PUSH_STATUS_LIVE,
+        PUSH_STATUS_DEGRADED,
+    ):
+        coordinator.push.status = status
+        assert sensor.native_value in sensor.options
+
+
+def test_the_reserved_state_list_still_matches_home_assistant():
+    """Pin our copy of the reserved strings to Home Assistant's own.
+
+    `HA_RESERVED_STATES` is a local literal so that the check above holds even
+    where `homeassistant` is mocked. That is only safe while the literal is
+    right, so where the real package is importable - which is CI - compare it.
+    """
+    from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+
+    if not isinstance(STATE_UNAVAILABLE, str):  # mocked homeassistant
+        return
+    assert set(HA_RESERVED_STATES) == {STATE_UNAVAILABLE, STATE_UNKNOWN}

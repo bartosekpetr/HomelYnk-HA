@@ -157,8 +157,15 @@ The controller device has a **Push** sensor so you can see which is in use:
 | `live` | changes are arriving; polling is the slow safety net |
 | `pending` | subscribed, but nothing has been delivered yet |
 | `degraded` | changes were being missed, so polling is back at full speed and the subscription is being re-registered |
-| `unavailable` | it could not be set up — the `reason` attribute says which step failed |
+| `failed` | it could not be set up — the `reason` attribute says which step failed |
 | `off` | turned off under **Configure** |
+
+This sensor read `unavailable` instead of `failed` in v0.9.0, and that was a mistake: `unavailable`
+is also how Home Assistant shows an entity it is not being given a state for, so a push channel
+that had simply failed to register looked exactly like a broken sensor — and the `reason` attribute
+that would have told the two apart is dropped by Home Assistant for a genuinely unavailable entity.
+**If your Push sensor reads `unavailable`, you are on v0.9.0 or older.** Update, and it will say
+which of the two it is.
 
 Worth knowing:
 

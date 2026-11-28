@@ -4,6 +4,25 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- **The Push sensor no longer reports `unavailable`, which is a state Home
+  Assistant renders itself.** When push could not be registered the sensor
+  reported the literal string `unavailable` — the same thing Home Assistant
+  writes for an entity it is not being given a state for at all. The two are
+  indistinguishable in the UI and in a screenshot, and they call for opposite
+  responses: one means "read the `reason` attribute", the other means "something
+  is broken in the integration". The attributes could not settle it either,
+  because Home Assistant keeps `extra_state_attributes` only while an entity is
+  available, so `reason` — the one thing worth reading — is exactly what a
+  reader could not be sure was there. That status is now **`failed`**. If your
+  Push sensor reads `unavailable`, you are on 0.9.0 or older.
+
+  This changes a published state value. An automation or template that tests
+  for `unavailable` on this sensor should test for `failed` instead; nothing
+  else in the integration is affected, and the push channel's behaviour is
+  unchanged.
+
 ## 0.9.0 - 2026-11-27
 
 The first stable release with the push channel and the diagnostics download.
