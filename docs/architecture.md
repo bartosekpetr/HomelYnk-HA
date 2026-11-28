@@ -1,22 +1,30 @@
 # Architecture
 
-Diagram current as of `52a8bc6` — 2026-11-27. Kept current by the diagram-upkeep routine
-(SMA-236). **One correction, and it is to the claim the previous revision added one day earlier.**
-That revision drew the diagnostics download as edges **59–62** and described edge 62 — the only
-egress in this system that goes to a human rather than to the controller — as *a JSON file the
-user attaches to a public issue*, gated by `redact()`. The gate half was right; the destination
-half was not. 🪤 `redact()` matches **by key name**, so it cannot see a private value riding out
-inside a field it keeps, and this payload keeps several **on purpose**: every datapoint and
-function `title` is an installer-chosen KNX group object name, each device row carries that name
-plus the HA `area_id` that `entity.py` suggests from the controller's own room name, and every
-current value is in there. Those fields *are* the diagnosis — a leftover datapoint entity is named
-from its title — so they cannot be redacted away without destroying the reason the file exists.
-`AGENTS.md` §5–§6 settled the consequence in `52a8bc6`, the one commit in the range that is not
-this page: a diagnostics file is safe to send **privately** and is not safe to paste in public,
-and the only thing enforcing that is a sentence in `README.md`. Corrected in both master diagrams,
-in edge 62 and in [§3](#3-components-and-responsibilities); [§8](#8-confidence) carries what the
-payload deliberately contains as its own row. Range checked: `47929fa..52a8bc6`. No component, no
-responsibility and no edge direction moved — **no code changed in that range at all.**
+Diagram current as of `c153626` — 2026-11-28. Kept current by the diagram-upkeep routine
+(SMA-250). **Two additions, and the first is the one a reader of this page could not have made for
+themselves: the never-remove rule now has a witness.** [§4](#4-the-load-bearing-data-path) item 6
+has said since v0.8.0 that nothing here ever deletes an entity, because a datapoint missing from a
+poll is a failed read and not a deletion. What that *costs* was never drawn. A Touch widget
+**recreated rather than edited** publishes **new** ids, so every entity keyed on the old ones stays
+in the registry for ever, permanently unavailable, under the name it had at the time, usually beside
+the working duplicate that replaced it — and from inside Home Assistant that is indistinguishable
+from a broken entity. It was indistinguishable in the diagnostics file too: the ids were all in
+there, in the registry rows and in the export, but only a reader cross-referencing them by hand
+would have found it. `b08ab04` closed that: `diagnostics_utils.stale_entities` joins the registry's
+own unique ids against the ids the export currently publishes and lists the misses as `review` →
+`no_longer_exported`, each with the id it is still looking for. **That join is the only place in
+this system where *what exists in Home Assistant* is compared against *what the controller
+publishes*** — and it **reports only**. An entity sweep stays forbidden: a 500 from `/datapoints`
+would make one delete the house. Drawn into both master diagrams, edge 60,
+[§3](#3-components-and-responsibilities), §4 item 6, [§7](#7-failure-attribution) and
+[§8](#8-confidence). The second addition is a negative that got stronger rather than a correction:
+[§3](#explicitly-not-part-of-this-system)'s *no colour temperature* was an assertion read off the
+dumps in hand and is now a **measurement over the controller's whole widget catalogue**, which
+reframes the item — it is not an integration gap and cannot become one. Range checked:
+`52a8bc6..c153626`. Deliberately **not** revised for: `527ad72` (the v0.9.0 stable release —
+`manifest.json`'s version is not a claim this page makes) and `3baacd9` (test-only), though the
+second is now cited as the dated witness for a hazard [§6](#6-change-exposure) and
+[§7](#7-failure-attribution) until now only asserted.
 
 The revision before this one is where push arrived, and that remains the current shape:
 `push.py` and `push_utils.py` are components, the controller has an **inbound** edge to Home
@@ -53,8 +61,13 @@ second-hand in the same way: both were measured on the skillset's reference cont
 2026-11-22 and only written up on 2026-11-23, and they are here because they are the *mechanism*
 under two rows that already existed. The row added on **2026-11-27** is a plain read of
 `diagnostics.py` and `diagnostics_utils.py` against the leak class `AGENTS.md` §5 records from the
-skillset's own tracked tree, dated 2026-11-26. Nothing in any of these revisions touched a
-controller, a Home Assistant or the network.
+skillset's own tracked tree, dated 2026-11-26. The two rows added on **2026-11-28** are of
+different kinds and the difference is the point: the registry × export join is a plain read of
+`diagnostics_utils.py`, unit-tested and never run against a real registry, while colour
+temperature's absence is **measured** — the skillset's widget rig enumerates the controller's own
+widget catalogue and builds *every* type in it with all optional slots populated, 47 types and 269
+distinct slots, which makes it an enumeration rather than a sample. Nothing in any of these
+revisions touched a controller, a Home Assistant or the network.
 
 The single most important thing on this page: **the integration owns almost nothing of what a
 user sees.** Which devices exist, which channels are exported, what a value means and whether a
@@ -162,6 +175,10 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
  |   | Reads both registries, hass.states and the coordinator;     |                   |
  |   | puts each decision next to its result: category and         |                   |
  |   | viability, dpa archetype, role, platform, entity, state.    |                   |
+ |   | Also the ONE JOIN nothing else makes: the registry ids      |                   |
+ |   | against the ids the export still publishes, so an           |                   |
+ |   | entity whose widget was RECREATED is named, not just        |                   |
+ |   | unavailable. It REPORTS - it never sweeps.                  |                   |
  |   | THE ONLY EGRESS, and the only one not to the controller.    |                   |
  |   | It carries YOUR OWN group object names, room names and      |                   |
  |   | values on purpose - they are the diagnosis - so it is a     |                   |
@@ -289,7 +306,7 @@ controller answering honestly. [§7](#7-failure-attribution) is the table for th
 | 57 | `push` | `coordinator.async_set_push_cadence` | switches the poll between the 300 s backstop and `scan_interval`. Never switches it off |
 | 58 | `GET /messaging/ws` | — | **not an edge at all**: 404 on this firmware in every form tried. The spec describes it; the controller does not serve it |
 | 59 | HA diagnostics API | `diagnostics.async_get_config_entry_diagnostics` | pull, **on demand only** — a human clicking *Download diagnostics*. Never polled, never scheduled, and the only edge on this page a user triggers by hand after setup |
-| 60 | entity registry + device registry + `hass.states` | `diagnostics.py` | read. The registry is the authority on **what exists**, which is the one thing a screenshot of the device page cannot distinguish from a fresh install: an entity that was created and then stopped being exported is still a row |
+| 60 | entity registry + device registry + `hass.states` | `diagnostics.py` | read. The registry is the authority on **what exists**, which is the one thing a screenshot of the device page cannot distinguish from a fresh install: an entity that was created and then stopped being exported is still a row. **This is also where the system's only cross-check happens** — `diagnostics_utils.stale_entities` joins these unique ids against the ids edge 61 says are currently exported and reports the misses as `review` → `no_longer_exported`. It is a *read* on both sides and changes nothing: an empty export (a cold or failed poll) reports nothing rather than condemning every entity |
 | 61 | `coordinator` | `diagnostics.py` | read-only: `data`, `entity_plan`, health, push, the backup manager, and `server_errors` / `structure_age` — two properties that exist for this edge and no other. Reads nothing from the controller, so a diagnostics download cannot disturb a poll |
 | 62 | `diagnostics_utils.build_diagnostics` | a JSON file the user sends to a maintainer — **privately** | **egress, and the only one on this page that leaves for a human rather than the controller.** `redact()` is the entire gate and it matches **by key name**, so it cannot see what rides out inside a field it *keeps*: every datapoint and function `title` is an installer-chosen KNX group object name, each device row carries that name and the HA `area_id` suggested from the controller's room, and every current value is there. That is deliberate — the title is what a leftover datapoint entity is **named** from — so the file is safe privately and **not** safe to paste in public, and the only thing saying so is a sentence in `README.md`. See [§8](#8-confidence) for both halves: why `api_base` survives a key-name gate, and what the payload deliberately contains |
 
@@ -348,7 +365,7 @@ flowchart TB
       SE["sensor.py<br/>datapoint readings, 7 health,<br/>last backup, export counts"]
       BT["button.py<br/>Create backup, Rescan devices,<br/>one per KNX scene"]
       DIAG["diagnostics.py<br/>reads both registries, hass.states<br/>and the coordinator;<br/>decides nothing, writes nothing"]
-      DU["diagnostics_utils.py<br/>payload shaping, the review block,<br/>and redact() BY KEY NAME (pure)"]
+      DU["diagnostics_utils.py<br/>payload shaping, the review block,<br/>the registry-against-export join,<br/>and redact() BY KEY NAME (pure)"]
       CONST["const.py<br/>constants only"]
     end
   end
@@ -460,7 +477,7 @@ flowchart TB
   APIC -.->|"never called, and<br/>there is nothing to call"| WS
 
   HADG -->|"a human clicks it;<br/>never polled"| DIAG
-  ER -->|"what exists, plus each state"| DIAG
+  ER -->|"what exists, plus each state;<br/>joined against the exported ids to name<br/>an entity whose widget was RECREATED.<br/>REPORTS ONLY - never a sweep"| DIAG
   DR -->|"controller plus one per function"| DIAG
   COORD -->|"data, entity_plan, health, push,<br/>server_errors, structure_age"| DIAG
   DIAG --> DU
@@ -505,7 +522,7 @@ flowchart TB
 | `button.py` | **Create backup** and **Rescan devices** (both `EntityCategory.CONFIG`), plus one button per KNX scene number | scheduling | manual backup still available via the service; rescan and scene recall have no replacement |
 | `push.py` | the push subscription's whole life: the webhook Home Assistant answers on, the per-entry signing secret, verifying every frame, re-asserting the subscription, and switching the poll between its backstop and `scan_interval` | deciding *state* (that is the coordinator) and decoding a value (that is `datapoints.py`) | the integration polls every `scan_interval` and nothing else, which is exactly v0.8.0's behaviour |
 | `push_utils.py` | the pure parts of that: the `X-Callback-Signature` construction, the frame decode, the subscribe body, the secret, orphan matching | anything needing Home Assistant | — |
-| `diagnostics.py` / `diagnostics_utils.py` | the only read-only consumer of the whole graph: HA's **Download diagnostics** for an entry, assembling the entity and device registries, the coordinator's state and the entity plan into one payload, with every function's category and composite viability, every datapoint's archetype, role and platform, and the redaction that keeps password, user, host, MAC/serial and callback path out of the file. It does **not** own the other half of that: group object names, room names and current values stay in, because they are the diagnosis, which is what makes the download a private send rather than a public attachment. Pure half unit-tested | any decision — it reports the ones already taken, and writes nothing | the project loses its only way to see what an installation actually became; a report of a wrong entity goes back to being a screenshot |
+| `diagnostics.py` / `diagnostics_utils.py` | the only read-only consumer of the whole graph: HA's **Download diagnostics** for an entry, assembling the entity and device registries, the coordinator's state and the entity plan into one payload, with every function's category and composite viability, every datapoint's archetype, role and platform, and the redaction that keeps password, user, host, MAC/serial and callback path out of the file. Also the **only cross-check in the system**: `stale_entities` joins the registry's unique ids against the currently exported ids, so an entity left behind by a *recreated* widget is named rather than merely unavailable. It does **not** own the other half of that: group object names, room names and current values stay in, because they are the diagnosis, which is what makes the download a private send rather than a public attachment. Pure half unit-tested | any decision — it reports the ones already taken, and writes nothing. In particular it does **not** act on its own stale list: deleting is the user's call and an entity sweep stays forbidden | the project loses its only way to see what an installation actually became; a report of a wrong entity goes back to being a screenshot, and a permanently orphaned entity goes back to being indistinguishable from a broken one |
 | `const.py` | every tunable and every KNX URN | behaviour | — |
 
 ### Explicitly not part of this system
@@ -536,8 +553,28 @@ flowchart TB
   LogicMachine side (Configurator `scenes`, `schedulers`, the automation plugin) and the 3rd-party
   API does not expose them — all of those paths answer 404 locally. A KNX `fct.scene` *function*
   is exposed, as one button per published scene number, because that is a datapoint write.
-- **No colour temperature, no transitions, no effects.** Colour is RGB and RGBW only; the
-  controller publishes nothing else for a light.
+- **No colour temperature, no transitions, no effects — and colour temperature is not a gap here,
+  it is absent from the controller.** Measured 2026-11-27 over the whole widget catalogue, not
+  sampled from one installation's dump: across **47 widget types and 269 distinct slots** the only
+  colour slots are `se-rgb-dimmer`'s `rgb`/`rgb-status` (DPT 232.600, the hex triplet) and
+  `se-rgbw-dimmer`'s per-channel red/green/blue/white (DPT 5.001) — exactly the five rows already
+  in `DPA_ROLES`. **There is no colour-temperature or tunable-white slot on any widget**, so no
+  `dic:dpa.*` archetype for one can exist and none may be invented. Three corroborations: the nine
+  lighting-system widgets publish only DPT 1.001, 5.001, 9.001 and 232.600; the catalogue's slot
+  datatypes are the majors 1, 5, 7, 9, 12, 14, 16, 20 and 232, with no 7.600 and no
+  242/249/250.600; and DPT **250.600**, which the controller's own datatype catalogue labels "3
+  byte DALI brightness and color temperature control", is used by **no slot of any widget** — the
+  two DALI group widgets expose only a 1.001 switch and a 5.001 value. The two apparent back doors
+  are both shut: the catalogue's single 2-byte-unsigned slot is `se-air-quality`'s read-only
+  `tvoc-index`, and `se-gauge`'s generic slot (`dpa.417.65`/`dpt.generic`, the one slot carrying an
+  arbitrary DPT) is `writable: false`. 🪤 A multi-channel dimmer's spare channel *is* a writable
+  0–100 % path to a CCT actuator that accepts DPT 5.001 — and it is unusable as one **here**,
+  because each channel exports as its own separate `fct.dimming` function carrying the **same**
+  `dpa.418.61`/`.63` archetypes as plain brightness, so nothing in the data distinguishes it from a
+  dimmer. That is [§4](#4-the-load-bearing-data-path) item 12's rule meeting the one case where the
+  discriminator genuinely does not exist. Colour temperature therefore belongs to Home Assistant's
+  own KNX integration over KNX/IP, alongside this one — the same route that retired the
+  controller-side-app idea (SMA-246). Do not file it here as a gap again.
 - **No history backfill from the controller.** `vis/graph` is the only series endpoint, it reads
   the `objectlog` table rather than the trend configuration, and object ids are recycled: a
   freshly created object came back carrying 100+ rows left by previous occupants of its id.
@@ -631,6 +668,26 @@ flowchart TB
    setup deleted "leftover" entities instead, which is exactly the behaviour a 500 could weaponise.
    The plan is computed once per poll in the coordinator rather than once per platform, because
    `se-logic-thermostat` alone can produce 25 functions and 48 datapoints.
+
+   🪤 **The price of that rule is a state nothing in Home Assistant can explain, and it is paid
+   whenever a widget is recreated rather than edited.** Entity unique ids are keyed on the
+   controller's `function_id` / `datapoint.id`, and those ids are *stable across edits and
+   renames* (measured) — but a widget deleted and rebuilt, which is what a bulk import does,
+   publishes **new** ones. So the replacement arrives as a fresh set of working entities while the
+   old set stays in the registry for ever, permanently unavailable, under whatever names and areas
+   it had been given, sitting next to its own duplicates. A failed read looks identical from the
+   device page and recovers by itself; this never does. Since `b08ab04` the one place that can tell
+   them apart is `diagnostics_utils.stale_entities`, which joins the registry's unique ids against
+   the ids the export currently carries and lists the misses as `review` → `no_longer_exported`
+   with the id each is still looking for. Three details in that join are load-bearing: it matches
+   **any** dashed id inside the unique id rather than the tail, so a scene button — whose unique id
+   ends in its enum member — is matched on the datapoint in the middle of it, and the `entry_id` is
+   plain hex so it cannot collide; an entity carrying no controller id at all is one of the
+   controller device's own (health, backup, push, the export counts) and is never stale; and an
+   export of **zero** ids reports nothing, because a cold or failed poll would otherwise condemn
+   every entity in the registry — the same 500 that makes a sweep dangerous would make this
+   diagnostic lie. It only reports. Deleting is the user's call, which Home Assistant already
+   offers on an unavailable entity.
 
 7. **Read slot ≠ write slot.** A widget's control and status objects collapse into **one**
    datapoint: its `value` is the status object, a write to it drives the control object. So both
@@ -818,7 +875,7 @@ Asymmetries on it:
 |---|---|---|
 | `hassfest@master` and `hacs/action@main` in `validate.yml` | **mutable refs**, re-resolved on every run, and there is a nightly `cron: "0 0 * * *"` | CI can start failing or start passing differently on an untouched repo. `actions/checkout`, `actions/setup-python` are SHA-pinned and `ruff==0.17.3` is version-pinned, so this is the only moving piece in CI |
 | `pytest-homeassistant-custom-component==0.13.375` | pinned, but it pulls a **real** `homeassistant` transitively | see the next table row — this pin is what decides which code the suite exercises |
-| `tests/conftest.py` mocking | it injects `homeassistant.*` mocks **only when `homeassistant` is not importable** | so CI (HA installed) and the documented local Windows setup (HA not installed) run *different code* from the same test files. "Tests pass locally" and "tests pass in CI" are not the same claim |
+| `tests/conftest.py` mocking | it injects `homeassistant.*` mocks **only when `homeassistant` is not importable** | so CI (HA installed) and the documented local Windows setup (HA not installed) run *different code* from the same test files. "Tests pass locally" and "tests pass in CI" are not the same claim — and this is **no longer hypothetical**: the `tests` job was red on every push from `a086d28` until `3baacd9` (2026-11-27) on one test, which stubbed `er`/`dr.async_entries_for_config_entry` but not `async_get`. A MagicMock `async_get` returns a MagicMock; the real one raises `RuntimeError: Device registry not set up` on a `hass` whose `data` the test owns. The test, not the code, was wrong — and the test in question is the one backing edges 59–61 |
 | Controller firmware | updated by the installer/user, out of band | the export gates, the 500 behaviour, `api.base` from `/.well-known/knx`, and the engineering-unit conversions are all firmware behaviour. Every measured fact in [docs/controller-api.md](controller-api.md) is pinned to firmware 3.1.0. The absences are firmware facts too: `GET /messaging/ws` 404s *on this firmware*, and a later one could serve it — so that row is a reason not to build a websocket client today, not proof that one will never be possible |
 | The Touch widget configuration | an installer edits a widget; nothing notifies HA | devices appear, change type, fan out or vanish. Nothing is exported until the gates pass, and nothing becomes an *entity* until the entry reloads |
 | The size of the project backup | the controller's **trend data lives inside the archive** and keeps growing; nobody acts | `wiser_backups/` grows without any config change, and any size-based assertion about a backup rots on its own. Measured on the skillset's reference controller: 423–431 KB earlier, 452133 B on 2026-11-20, entry count unchanged throughout. This is why the entry count is the only thing compared |
@@ -887,7 +944,10 @@ controller.
 | A stored backup cannot be opened, but no error was ever reported | **the backup password, or the controller** | the ZIP gate only proves the bytes parse as an archive; it never opens an entry and a zero-entry archive passes it. Nothing in this repo restores, so "a backup exists" is not "a backup works" — check the password first |
 | Entities vanished after an upgrade | upgrades **to** v0.5.0-v0.7.x | those versions deleted `binary_sensor`/`cover`/`climate` entities and function-derived sensors on every setup. v0.8.0 removed that sweep entirely, so nothing is deleted any more — the platforms are back and the entities are re-created with their old unique ids |
 | Entities left over after the v0.8.0 upgrade, permanently unavailable | **not a fault** | function-keyed sensors from before v0.5.0 are not re-adopted: sensors are now keyed on `datapoint.id`. Delete them in the UI |
+| An entity stuck **Unavailable** for ever, usually beside a working duplicate of the same thing | the widget was **recreated rather than edited** — and this is the common cause, not an upgrade | ids are stable across widget *edits* and renames; a widget deleted and rebuilt — which is what a bulk import does — publishes new ones, and nothing here removes the entities keyed on the old ones. Tell it apart from a failed read by the duration: a failed read recovers on the next good poll, this never recovers. **Download diagnostics** → `review` → `no_longer_exported` names each one and the id it is still looking for. Deleting them is safe and is the user's call; the integration will not do it, by design |
+| `no_longer_exported` names something the installer insists still exists | **the list is honest about the export, not about the widget** | the join is against the ids of the last successful poll, so a widget whose `disable_export` was just set, or one the controller dropped while recomputing its export, is indistinguishable in that file from one that was recreated. Two guards exist and neither covers this: a poll that fails serves the previous complete data (so the ids do not thin out), and an export of **zero** ids reports nothing at all rather than condemning the whole registry. The resolution is a second file after a good poll, not a change here |
 | A reading, control or flag the controller exports has no entity | the plan | `plan.py` assigns a platform to every datapoint; only the `dpt.uuid` automation-trigger virtuals and whole `skip` categories (media, camera, Content) are dropped on purpose. Anything else missing is a gap in `datapoint_platform` |
+| A tunable-white or CCT light has brightness in HA but **no colour temperature** | **not a fault, and not a missing feature here** | measured over the controller's whole widget catalogue (47 types, 269 slots, 2026-11-27): **no widget has a colour-temperature slot**, so no datapoint for one is ever published and no archetype for one can exist. Even the workaround does not surface: a multi-channel dimmer's spare channel can drive a DPT 5.001 CCT actuator, but it exports as another `fct.dimming` with the *same* archetypes as brightness, so it arrives as a second ordinary dimmable light and nothing in the data can tell it apart. The route is Home Assistant's own KNX integration over KNX/IP, alongside this one. Do not add a role for it |
 | A thermostat's fan turned off when the thermostat was turned off | the integration, if roles ever merge again | the two are different archetypes (`dpa.417.72` the thermostat, `dpa.417.70` the fan manual mode) and carry different roles for this reason |
 | A cover's position reads inverted | the actuator's convention vs KNX's | `cover.py` assumes the KNX convention (0 % = fully up) and inverts for HA. Not verified against hardware; the widget's own `height-invert` slot is measured not to affect what the API publishes |
 | A cover's stop button moves the shutter | the actuator's stop object | the integration sends the value the controller's own stop button sends (raw 0 = `decrease`, measured). An actuator wired to stop on 1 would move instead |
@@ -976,7 +1036,9 @@ controller.
 | The certificate-changed reauth card is raised on a real installation | **observed-only** | owner-confirmed 2026-11-22: a controller presenting a different certificate than the pinned one produced the **"Controller certificate changed"** card with the new and previously trusted fingerprints, exactly as the code draws it. **Submitting** that card — `async_update_reload_and_abort`, entry and entity ids preserved — is still **inferred from code**: the owner removed and re-added the entry instead, so that branch has never been run |
 | The v0.7.x → v0.8.x upgrade path | **never run** | v0.8.0 stable is the version every existing user will take it on, and no installation has upgraded across it. The one HA-side data point is a fresh v0.8.0-beta.2 install through HACS on 2026-11-22, reported working — no entity list was taken |
 | Everything HA-runtime: flow steps, registries, scheduler, services, backup hooks, migration | **inferred from code** | `tests/conftest.py` mocks HA when it is not installed, so these are reasoned from the code and from the manual checklist in [docs/development.md](development.md), not asserted by the suite in every environment |
-| Edges 59–61: diagnostics reads the registries, `hass.states` and the coordinator | **inferred from code**, pure half unit-tested | `tests/test_diagnostics.py` covers the shaping, the `review` block and the redaction against hand-built inputs. The three *reads* need a running Home Assistant — `er.async_entries_for_config_entry`, `dr.async_entries_for_config_entry` and `hass.states.get` are all mocked in the suite — so **no diagnostics file has ever been produced by a real Home Assistant.** This is the file SMA-216 asks the owner for, which makes it the one unexercised path the project is actively depending on |
+| Edges 59–61: diagnostics reads the registries, `hass.states` and the coordinator | **inferred from code**, pure half unit-tested | `tests/test_diagnostics.py` covers the shaping, the `review` block and the redaction against hand-built inputs. The three *reads* need a running Home Assistant — `er.async_entries_for_config_entry`, `dr.async_entries_for_config_entry` and `hass.states.get` are all mocked in the suite — so **no diagnostics file has ever been produced by a real Home Assistant.** This is the file SMA-216 asks the owner for, which makes it the one unexercised path the project is actively depending on. 🪤 And the test that covers it was **red in CI from `a086d28` to `3baacd9`** while passing locally, because it stubbed the registry *row* lookups and not `async_get`; a green local suite was never evidence about this row (see [§6](#6-change-exposure)) |
+| Edge 60's join: `stale_entities` names an entity whose controller id is no longer exported | **inferred from code**, unit-tested | `tests/test_diagnostics.py` pins the ranking: any dashed id inside the unique id matches (so a scene button is matched on the datapoint in the middle of it, not on its trailing enum member), an entity with no controller id in it at all is never stale, and an export of zero ids reports nothing. What is **not** established is the premise it is built on — that a *recreated* widget publishes new ids. Id stability across widget **edits and renames** is measured (ids byte-identical across edits); stability across a delete-and-rebuild is the opposite claim and **nobody has measured it** — it follows from the controller minting an id per created object, and `AGENTS.md` §6 carries it as the *leading hypothesis* for a report, with a standing instruction not to act on it until a file confirms it. So the mechanism is a well-supported hypothesis, the join is the evidence that would confirm it, and it has never run against a real registry |
+| No Touch widget on firmware 3.1.0 has a **colour-temperature** slot | **measured — an absence, over the catalogue rather than a sample** | 2026-11-27, SMA-246. The skillset's widget rig reads the controller's *own* widget catalogue and builds **every** type in it (not the `app`-tagged subset) with all optional slots populated, recording each type's full slot definition: across **47 types and 269 distinct slots** the only colour slots are `se-rgb-dimmer`'s `rgb`/`rgb-status` (DPT 232.600) and `se-rgbw-dimmer`'s four DPT 5.001 channels. Three independent corroborations in the same data: the nine lighting-system widgets publish only DPT 1.001/5.001/9.001/232.600; the catalogue's slot datatypes are the majors 1, 5, 7, 9, 12, 14, 16, 20 and 232, with no 7.600 and no 242/249/250.600; and DPT **250.600** — the controller's own catalogue entry "3 byte DALI brightness and color temperature control" — is used by no slot of any widget, including both DALI group widgets. An enumeration can establish an absence in a way a sample cannot, which is why this row is `measured` and the sentence it replaced in [§3](#explicitly-not-part-of-this-system) was only asserted. **What was not checked**, because it needs the owner's controller rather than the catalogue: what one particular tile in their installation currently publishes. It cannot change the conclusion — no configuration of any widget produces a colour-temperature datapoint — so it is worth asking only if they want to know what that tile is |
 | Edge 62: `redact()` keeps the owner's host, credentials, MAC/serial and callback path out of the downloaded file | **inferred from code**, unit-tested | the gate is a **key-name blocklist** (`password`, `backup_password`, `username`, `host`, `certificate_fingerprint`, `unique_id`, `device_id`, `callback_path`, `secret`), applied at any depth. 🪤 A key-name gate is exactly the shape `AGENTS.md` §5 warns about — "a list is not a gate" — because a value can ride out under a key nobody listed, and the entry's `data` is passed through wholesale. The one field that could re-introduce the host is **`api_base`, which is not redacted**; it is safe only because `api.py`'s setter regex-guards it to a plain path and rejects anything containing `//`, so it holds `/api/w4knx/3rdparty/v1` and never a URL. **That is a guarantee enforced in a different file from the redactor, and no test pins the pair** — checked by reading both on 2026-11-26, not by running them. `port` is unredacted by choice. The signing secret is not reachable from here at all: the push manager does not expose it |
 | Edge 62's payload deliberately carries the installation's own group object names, room names and current values, and a key-name gate structurally cannot see them | **inferred from code** for the content, on a **leak class measured 2026-11-26** for the blind spot | read off `diagnostics_utils.py` and `diagnostics.py` on 2026-11-27: every datapoint row keeps `title` and `value`, every function row keeps `title` and `location_id`, each device row keeps `name` (`name_by_user or name`) and `area_id` — which `entity.py` suggests from the controller's own room name — and each entity row keeps its name and state. None of those keys is in `REDACT_KEYS`, and none could be: the title is **the** diagnosis, because a leftover datapoint entity is named from it. The blind spot is not hypothetical. The skillset's own artefacts carried three real group-object names in twelve places while *both* its gates passed them — the value stage keyed on credential-shaped facts and could not look at a label, and because it reads raw bytes a JSON `\uXXXX` escape hid one of the three from it entirely (`AGENTS.md` §5–§6, 2026-11-26). So the honest statement of this edge is: the redactor is a credential gate, the label gate is a **sentence in `README.md`** asking the user to read the file first, and `AGENTS.md` states the rule as safe-privately / not-safe-in-public. This repo's own tracked tree was swept on the same date and carries no house label |
 | Edge 62 is the only egress from this system that is **not** to the controller | **inferred from code** | everything else crosses the boundary at the bottom of §1 to a device on the owner's LAN. This one crosses to a human, and nothing in Home Assistant warns a user what is in the file before it downloads — see the row above for what that is. Reasoned from the code path; no file has been produced by a real Home Assistant, so what a real payload contains has never been inspected |
@@ -1004,6 +1066,13 @@ controller.
   it. The ZIP gate narrows "we stored something" to "we stored
   something that parses" — it does not reach "we stored something that restores", and nothing
   here does.
+- **Whether a recreated Touch widget really does publish new ids.** Id stability across widget
+  *edits* and renames is measured; a delete-and-rebuild is the opposite case and has never been
+  probed, deliberately — it means destroying and rebuilding a widget on a live house. It is the
+  premise under `review` → `no_longer_exported` and under this page's reading of the owner's
+  "permanently unavailable" report, so it is the one inference on the diagnostics path doing real
+  explanatory work. The cheap way to settle it is the file itself: if entities show up in that list
+  carrying ids the export no longer knows, the premise held.
 - Multi-controller setups. The code supports them (`hass.data[DOMAIN]` is keyed by `entry_id`,
   pruning and filenames are per host, the service fans out), but nothing in the repo records this
   being run against two controllers at once.
