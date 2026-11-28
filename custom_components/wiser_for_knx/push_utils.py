@@ -219,3 +219,24 @@ def callback_path_matches(subscription: Any, path: str) -> bool:
         return (urlsplit(url).path or "/") == path
     except ValueError:
         return False
+
+
+def subscribe_failure_reason(err: BaseException) -> str:
+    """Name a failed `POST /subscribe` in one line fit for an entity attribute.
+
+    The exception class alone is what the first real-installation failure
+    reported, and it was not enough: `WiserKnxServerError` says the controller
+    answered 5xx without saying *which* 5xx, and 500, 503 and 504 point at
+    different halves of the controller. The status is therefore included where
+    the error carries one.
+
+    The exception's **message** is deliberately left out: it names the
+    controller's URL, and an entity attribute is read by anyone who can read
+    the state machine and travels into a diagnostics download, which redacts
+    the host everywhere else.
+    """
+    name = type(err).__name__
+    status = getattr(err, "status", None)
+    if isinstance(status, int):
+        return f"{name} (HTTP {status})"
+    return name

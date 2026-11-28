@@ -13,6 +13,10 @@ import json
 
 import pytest
 
+from custom_components.wiser_for_knx.api import (
+    WiserKnxConnectionError,
+    WiserKnxServerError,
+)
 from custom_components.wiser_for_knx.push_utils import (
     MAX_CALLBACK_BODY,
     SUBSCRIBE_TYPE,
@@ -24,6 +28,7 @@ from custom_components.wiser_for_knx.push_utils import (
     signature_message,
     split_callback_url,
     subscribe_body,
+    subscribe_failure_reason,
     subscription_id_from_response,
     verify_callback_signature,
 )
@@ -242,3 +247,39 @@ def test_chunked_is_a_fallback_that_never_yields_an_empty_batch():
     assert chunked(["a", "b", "c"], 2) == [["a", "b"], ["c"]]
     assert chunked([], 2) == []
     assert chunked(["a"], 1) == [["a"]]
+
+
+# --- why a subscription failed ------------------------------------------------
+#
+# The first time push ran in a real Home Assistant it failed and reported the
+# bare class name `WiserKnxServerError`, which identified the layer but not the
+# fault: 500, 503 and 504 from this controller point at different halves of it.
+
+
+def test_a_failure_reason_carries_the_http_status_when_the_error_has_one():
+    err = WiserKnxServerError("https://host/subscribe returned HTTP 500", status=500)
+
+    assert subscribe_failure_reason(err) == "WiserKnxServerError (HTTP 500)"
+
+
+def test_a_failure_reason_without_a_status_is_just_the_class():
+    """A timeout or a TLS refusal never reached a status; it must not invent one."""
+    assert subscribe_failure_reason(TimeoutError()) == "TimeoutError"
+    assert (
+        subscribe_failure_reason(WiserKnxConnectionError("boom"))
+        == "WiserKnxConnectionError"
+    )
+
+
+def test_a_failure_reason_never_carries_the_controller_url():
+    """The reason is an entity attribute, and diagnostics redacts the host."""
+    err = WiserKnxServerError(
+        "https://192.168.1.x:443/api/w4knx/3rdparty/v1/subscribe returned HTTP 503",
+        status=503,
+    )
+
+    reason = subscribe_failure_reason(err)
+
+    assert "192.168.1.x" not in reason
+    assert "subscribe" not in reason
+    assert "503" in reason

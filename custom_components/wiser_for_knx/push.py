@@ -65,6 +65,7 @@ from .push_utils import (
     generate_secret,
     parse_callback_body,
     split_callback_url,
+    subscribe_failure_reason,
     verify_callback_signature,
 )
 
@@ -501,7 +502,7 @@ class WiserKnxPushManager:
             try:
                 subscription_ids = await self._async_subscribe(ids, url, secret)
             except Exception as err:  # noqa: BLE001 - every failure means "keep polling"
-                self._set_status(PUSH_STATUS_FAILED, f"{type(err).__name__}")
+                self._set_status(PUSH_STATUS_FAILED, subscribe_failure_reason(err))
                 _LOGGER.debug("Push subscription failed: %s", err)
                 self.coordinator.async_set_push_cadence(False)
                 self._schedule_retry()

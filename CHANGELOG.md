@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented in this file.
 
+## Unreleased
+
+### Fixed
+
+- **A failed push subscription now names the HTTP status, not just the error
+  class.** The first time push ran on a real installation it failed and the
+  sensor's `reason` read `WiserKnxServerError` — which says the controller
+  answered 5xx without saying which, and 500, 503 and 504 point at different
+  halves of it. The status is now included where the controller gave one:
+  `WiserKnxServerError (HTTP 500)`. The error's message is still left out
+  deliberately, because it names the controller's address and the diagnostics
+  download redacts that everywhere else.
+
 ## 0.9.1 - 2026-11-28
 
 Two changes on top of 0.9.0, both answering reports from an installation running

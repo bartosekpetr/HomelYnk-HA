@@ -33,7 +33,19 @@ class WiserKnxAuthError(Exception):
 
 
 class WiserKnxConnectionError(Exception):
-    """Raised when connection to Wiser for KNX fails."""
+    """Raised when connection to Wiser for KNX fails.
+
+    `status` carries the HTTP status that caused it, where one did. It stays
+    `None` for a timeout, a TLS refusal or a transport error, so a caller must
+    treat it as "if known" rather than as "the controller answered". It exists
+    because the exception's *message* names the controller's URL and is
+    therefore not safe to put in an entity attribute, while the status code is
+    the half that identifies the fault.
+    """
+
+    def __init__(self, *args: Any, status: int | None = None) -> None:
+        super().__init__(*args)
+        self.status = status
 
 
 class WiserKnxServerError(WiserKnxConnectionError):
@@ -283,7 +295,7 @@ class WiserKnxClient:
                     )
                     return False
                 raise WiserKnxConnectionError(
-                    f"Unexpected HTTP {resp.status} from {url}"
+                    f"Unexpected HTTP {resp.status} from {url}", status=resp.status
                 )
         except aiohttp.ClientError as err:
             raise _connection_error(f"Connection failed to {url}: {err}", err) from err
@@ -341,9 +353,13 @@ class WiserKnxClient:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError(f"Unauthorized reading {resource}")
                 if resp.status >= 500:
-                    raise WiserKnxServerError(f"{url} returned HTTP {resp.status}")
+                    raise WiserKnxServerError(
+                        f"{url} returned HTTP {resp.status}", status=resp.status
+                    )
                 if resp.status != 200:
-                    raise WiserKnxConnectionError(f"{url} returned HTTP {resp.status}")
+                    raise WiserKnxConnectionError(
+                        f"{url} returned HTTP {resp.status}", status=resp.status
+                    )
                 json_data = await resp.json(content_type=None)
         except aiohttp.ClientError as err:
             raise _connection_error(f"Request to {url} failed: {err}", err) from err
@@ -456,10 +472,12 @@ class WiserKnxClient:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError("Unauthorized creating a push subscription")
                 if resp.status >= 500:
-                    raise WiserKnxServerError(f"{url_str} returned HTTP {resp.status}")
+                    raise WiserKnxServerError(
+                        f"{url_str} returned HTTP {resp.status}", status=resp.status
+                    )
                 if resp.status not in (200, 201, 202):
                     raise WiserKnxConnectionError(
-                        f"{url_str} returned HTTP {resp.status}"
+                        f"{url_str} returned HTTP {resp.status}", status=resp.status
                     )
                 body = await resp.json(content_type=None)
         except aiohttp.ClientError as err:
@@ -528,7 +546,9 @@ class WiserKnxClient:
                 if resp.status in (401, 403):
                     raise WiserKnxAuthError(f"Unauthorized reading {path}")
                 if resp.status != 200:
-                    raise WiserKnxConnectionError(f"{path} returned HTTP {resp.status}")
+                    raise WiserKnxConnectionError(
+                        f"{path} returned HTTP {resp.status}", status=resp.status
+                    )
                 body = await resp.json(content_type=None)
         except TimeoutError as err:
             raise WiserKnxConnectionError(f"Request to {path} timed out") from err
@@ -565,7 +585,8 @@ class WiserKnxClient:
                     )
                 if resp.status != 200:
                     raise WiserKnxConnectionError(
-                        f"Backup request to {kind_path} returned HTTP {resp.status}"
+                        f"Backup request to {kind_path} returned HTTP {resp.status}",
+                        status=resp.status,
                     )
                 return await resp.read()
         except TimeoutError as err:
