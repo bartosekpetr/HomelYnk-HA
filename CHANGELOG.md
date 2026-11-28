@@ -25,6 +25,13 @@ signature it checks. Every failure path in it lands on the polling behaviour of
   this is the cost of it. `review` → `no_longer_exported` now lists each one with
   the id it is still looking for, so a stale entity can be told from a channel
   that will come back. They are safe to delete by hand; the README says where.
+- **Security: upgrade if you are still on 0.7.x or earlier.** Those versions
+  trusted the API base path returned by the controller's own discovery response
+  and used it unchecked when building authenticated requests, so a tampered or
+  spoofed response could have sent the controller credentials to another host.
+  The path is validated as of 0.8.0. Upgrading is all that is required — a value
+  stored before the fix is re-validated when the integration loads, so there is
+  nothing to clear by hand.
 
 ## 0.9.0-beta.1 - 2026-11-26
 
@@ -58,13 +65,6 @@ behaviour of 0.8.0.
   slow poll is the only thing able to notice. A **Push** sensor on the controller
   device shows whether it is live, and every failure path lands back on plain
   polling rather than on stale state.
-- **Security: upgrade if you are still on 0.7.x or earlier.** Those versions
-  trusted the API base path returned by the controller's own discovery response
-  and used it unchecked when building authenticated requests, so a tampered or
-  spoofed response could have sent the controller credentials to another host.
-  The path is validated as of 0.8.0. Upgrading is all that is required — a value
-  stored before the fix is re-validated when the integration loads, so there is
-  nothing to clear by hand.
 
 ## 0.8.1-beta.1 - 2026-11-25
 
