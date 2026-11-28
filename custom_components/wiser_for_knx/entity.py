@@ -140,8 +140,9 @@ class WiserKnxBaseEntity(CoordinatorEntity[WiserKnxDataUpdateCoordinator]):
         the first in id order so the choice is stable across polls.
         """
         found: dict[str, dict[str, Any]] = {}
+        types = self.function_data.get("types") or []
         for _dp_id, dp in sorted((self.function_data.get("datapoints") or {}).items()):
-            role = datapoint_role(dp)
+            role = datapoint_role(dp, types)
             if role and role not in found:
                 found[role] = dp
         return found

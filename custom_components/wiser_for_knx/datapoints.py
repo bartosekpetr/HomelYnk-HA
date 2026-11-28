@@ -17,6 +17,11 @@ user-defined KNX group object names (the installer's own language), so they are
 display text, never a key. The datapoint type is the fallback when an archetype
 has not been measured, and a role of ``None`` is a valid answer.
 
+One slot defeats that on purpose: a gauge's `dic:dpa.417.65` is "whatever the
+installer wired here", so the archetype genuinely cannot say what the reading
+is. Only there does ``datapoint_role`` look outside the datapoint, at the
+owning function's own URN - see ``FCT_GAUGE_ROLES``.
+
 Pure module: no Home Assistant imports, so it stays unit-testable.
 """
 
@@ -83,6 +88,10 @@ ROLE_DEW_POINT_ALARM = "dew_point_alarm"
 ROLE_FAILURE = "failure"
 ROLE_SCENE = "scene"
 ROLE_VALUE = "value"
+# A number whose quantity the controller names but whose unit it does not pin
+# down. Reported as a parsed number with no unit, which is what keeps a reading
+# out of the wrong unit; see FCT_GAUGE_ROLES.
+ROLE_MEASUREMENT = "measurement"
 ROLE_TRIGGER = "trigger"
 
 # Archetype -> role. Every row was measured; the comment is the Touch slot it came from.
@@ -200,6 +209,71 @@ DPT_ROLES: dict[str, str] = {
     "urn:knx:dpt.uuid": ROLE_TRIGGER,
 }
 
+# --- the gauge, the one slot a datapoint cannot describe on its own ---------
+
+# `se-gauge` publishes a single read-only datapoint - `dic:dpa.417.65` /
+# `urn:knx:dpt.generic`, no unit - whatever quantity is wired to it, because the
+# archetype identifies the tile's *slot* and that slot takes an arbitrary DPT.
+# From the datapoint alone the only honest answer is ROLE_VALUE: a string with no
+# unit, no device class and no statistics. That is what an installer's humidity
+# tile became in Home Assistant, and it is correct for a gauge that says nothing
+# about itself.
+#
+# A *configured* gauge does say something, in the function's second `@type`.
+# Measured against the 3rd Party API with scratch gauges on one object
+# (wiser-knx-skillset `widget-matrix.md`, 2026-11-25/27) and again on 15 live
+# tiles: the widget's `gauge-device` setting composes that type as
+# `urn:knx:fct.schneider.<value>`, so a configured gauge function arrives as
+#
+#     ["urn:knx:fct.gauge", "urn:knx:fct.schneider.weather.humiditySensor"]
+#
+# and an unconfigured one as `urn:knx:fct.schneider.generic`.
+#
+# Three rules this table obeys, each of which something was measured to need:
+#
+# * **Whole-URN keys, matched exactly.** `fct.schneider.device.<name>` is
+#   composed from an unvalidated free-text field, and
+#   `fct.schneider.windoor.type.door` and `fct.schneider.logicThermostat.*` share
+#   the prefix, so a substring match would take a device class from a user's
+#   typing.
+# * **`generic` stays generic.** `fct.schneider.generic` and
+#   `fct.schneider.device.generic` are what an unconfigured gauge publishes - and
+#   also the *only* thing a temperature gauge can publish, because 🪤 the
+#   firmware's `gauge-device` enum has **no temperature option** at all (it
+#   offers power/energy/voltage/current/frequency, humidity, CO, CO2, ozone,
+#   battery, brightness, dimmer level, shutter position, wind speed and
+#   `device.*`). So the one quantity an installer is most likely to put on a
+#   gauge is the one quantity this cannot type, and that is a property of the
+#   controller rather than a gap here.
+# * **A unit is claimed only where every DPT the quantity can arrive in shares
+#   it.** A humidity gauge is a percentage whether it is wired to DPT 9.007 or
+#   5.001, so it can carry one; a power gauge is 9.024 **kW** or 14.056 **W** and
+#   the API publishes no DPT subtype to tell them apart, so a unit here would be
+#   wrong by a factor of 1000 on half the installations. Those get
+#   ROLE_MEASUREMENT - a parsed number with long-term statistics and no unit.
+#
+# Per-edge confidence: the `weather.humiditySensor`, `weather.CO2Sensor` and
+# `power.powerSensor` rows were read back from the API as published function
+# types. The other six are the measured composition rule applied to
+# `gauge-device` enum values read off the widget's own `script.js` and written to
+# live tiles, so the value is measured and the composed URN is inferred - which
+# is safe in this direction, because a URN that never appears simply never
+# matches and the gauge stays the plain sensor it is today.
+FCT_GAUGE_ROLES: dict[str, str] = {
+    "urn:knx:fct.schneider.weather.humiditySensor": ROLE_HUMIDITY,  # % on any DPT
+    "urn:knx:fct.schneider.weather.CO2Sensor": ROLE_CO2,  # ppm
+    "urn:knx:fct.schneider.weather.BrightnessSensor": ROLE_ILLUMINANCE,  # lux
+    # Named quantity, ambiguous unit: a number, never a guessed unit
+    "urn:knx:fct.schneider.weather.WindSpeedSensor": ROLE_MEASUREMENT,  # m/s | km/h
+    "urn:knx:fct.schneider.power.powerSensor": ROLE_MEASUREMENT,  # W | kW
+    "urn:knx:fct.schneider.power.energyMeter": ROLE_MEASUREMENT,  # Wh | kWh
+    "urn:knx:fct.schneider.power.voltageSensor": ROLE_MEASUREMENT,  # V | mV
+    "urn:knx:fct.schneider.power.currentSensor": ROLE_MEASUREMENT,  # A | mA
+    "urn:knx:fct.schneider.power.frequencySensor": ROLE_MEASUREMENT,  # Hz
+}
+
+_FCT_GAUGE_ROLES = {urn.casefold(): role for urn, role in FCT_GAUGE_ROLES.items()}
+
 # Roles whose datapoint is a diagnostic, not part of the user-facing control
 DIAGNOSTIC_ROLES = frozenset(
     {
@@ -285,24 +359,46 @@ _TEMPERATURE_ROLES = frozenset(
 )
 
 
-def datapoint_role(dp: dict[str, Any]) -> str | None:
+def datapoint_role(
+    dp: dict[str, Any], function_types: list[str] | None = None
+) -> str | None:
     """Return the role of a datapoint, or None when nothing identifies it.
 
     The archetype decides; the datapoint type is only consulted when the
     archetype is unknown. A datapoint that carries a unit but reads as a role
     with no unit keeps its archetype answer either way - the unit is reported,
     never used to classify.
+
+    `function_types` is the owning function's `@type` list, and it is consulted
+    for exactly one thing: a gauge's generic reading, which no archetype can
+    describe because the slot takes any DPT (see `FCT_GAUGE_ROLES`). Omitting it
+    is safe - the answer is then the datapoint's own, which is what every caller
+    got before gauges could be typed - but a caller that has the function should
+    pass it, so that the plan, the entity and the diagnostics file all agree.
     """
     types = dp.get("types") or []
     for type_ in types:
         role = DPA_ROLES.get(type_)
         if role:
-            return role
+            return _in_function(role, function_types)
     for type_ in types:
         role = DPT_ROLES.get(type_)
         if role:
-            return role
+            return _in_function(role, function_types)
     return None
+
+
+def _in_function(role: str, function_types: list[str] | None) -> str:
+    """Type a gauge's generic reading from its function's URN, or leave it be."""
+    if role != ROLE_VALUE:
+        return role
+    for type_ in function_types or []:
+        if not isinstance(type_, str):
+            continue
+        refined = _FCT_GAUGE_ROLES.get(type_.casefold())
+        if refined:
+            return refined
+    return role
 
 
 def is_binary(role: str | None, dp: dict[str, Any]) -> bool:

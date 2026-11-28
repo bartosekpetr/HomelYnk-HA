@@ -17,9 +17,11 @@ from custom_components.wiser_for_knx.datapoints import (
     ROLE_CO2,
     ROLE_DEVICE_STATUS,
     ROLE_HEATING_DEMAND,
+    ROLE_HUMIDITY,
     ROLE_HVAC_MODE,
     ROLE_ILLUMINANCE,
     ROLE_LOCK_CONTROL,
+    ROLE_MEASUREMENT,
     ROLE_MOTION,
     ROLE_MOVE,
     ROLE_OPEN_CLOSE,
@@ -30,6 +32,7 @@ from custom_components.wiser_for_knx.datapoints import (
     ROLE_SWITCH,
     ROLE_TEMPERATURE,
     ROLE_TILT,
+    ROLE_VALUE,
     binary_state,
     datapoint_role,
     enum_member_for_bit,
@@ -100,6 +103,88 @@ def test_an_unknown_datapoint_has_no_role():
         is None
     )
     assert datapoint_role({}) is None
+
+
+# --- the gauge, the one slot typed from its function -----------------------
+#
+# A gauge always publishes `dic:dpa.417.65` / `urn:knx:dpt.generic` with no unit,
+# whatever is wired to it, and the function carries a second `@type` composed
+# from the widget's `gauge-device` setting. The URNs below are the measured ones.
+
+_GAUGE = ("dic:dpa.417.65", "urn:knx:dpt.generic")
+
+
+def _gauge_types(second=None):
+    types = ["urn:knx:fct.gauge"]
+    if second:
+        types.append(second)
+    return types
+
+
+@pytest.mark.parametrize(
+    ("fct", "role"),
+    [
+        ("urn:knx:fct.schneider.weather.humiditySensor", ROLE_HUMIDITY),
+        ("urn:knx:fct.schneider.weather.CO2Sensor", ROLE_CO2),
+        ("urn:knx:fct.schneider.weather.BrightnessSensor", ROLE_ILLUMINANCE),
+        ("urn:knx:fct.schneider.power.powerSensor", ROLE_MEASUREMENT),
+        ("urn:knx:fct.schneider.power.energyMeter", ROLE_MEASUREMENT),
+        ("urn:knx:fct.schneider.weather.WindSpeedSensor", ROLE_MEASUREMENT),
+    ],
+)
+def test_a_configured_gauge_is_typed_from_its_function_urn(fct, role):
+    assert datapoint_role(_dp(*_GAUGE), _gauge_types(fct)) == role
+
+
+@pytest.mark.parametrize(
+    "fct",
+    [
+        None,
+        # What an unconfigured gauge publishes - and the only thing a temperature
+        # gauge can publish, because `gauge-device` has no temperature option
+        "urn:knx:fct.schneider.generic",
+        "urn:knx:fct.schneider.device.generic",
+        # Composed from an unvalidated free-text field: never a device class
+        "urn:knx:fct.schneider.device.Temperature",
+        "urn:knx:fct.schneider.device.Humidity",
+    ],
+)
+def test_a_gauge_that_says_nothing_about_itself_stays_a_plain_value(fct):
+    assert datapoint_role(_dp(*_GAUGE), _gauge_types(fct)) == ROLE_VALUE
+
+
+def test_a_gauge_url_is_matched_whole_and_never_by_prefix():
+    """The two other `fct.schneider.*` functions must not reach this table."""
+    for fct in (
+        "urn:knx:fct.schneider.windoor.type.door",
+        "urn:knx:fct.schneider.logicThermostat.type.thermostat",
+        "urn:knx:fct.schneider.weather",
+        "urn:knx:fct.schneider.weather.humiditySensorExtra",
+    ):
+        assert datapoint_role(_dp(*_GAUGE), _gauge_types(fct)) == ROLE_VALUE
+
+
+def test_the_function_urn_only_ever_types_a_generic_reading():
+    """Every other archetype keeps its own answer, whatever the function is."""
+    hostile = _gauge_types("urn:knx:fct.schneider.weather.humiditySensor")
+    temperature = _dp("dic:dpa.399.56", "urn:knx:dpt.valueTemp", unit="C")
+    battery = _dp("dic:dpa.65533.51", "urn:knx:dpt.scaling", unit="%")
+    assert datapoint_role(temperature, hostile) == ROLE_TEMPERATURE
+    assert datapoint_role(battery, hostile) == ROLE_BATTERY_LEVEL
+
+
+def test_an_untyped_gauge_reading_is_the_same_answer_as_before():
+    """Omitting the function types must not change any existing answer."""
+    dp = _dp(*_GAUGE)
+    assert datapoint_role(dp) == ROLE_VALUE
+    assert datapoint_role(dp, []) == ROLE_VALUE
+    assert datapoint_role(dp, [None, 5]) == ROLE_VALUE
+
+
+def test_a_typed_gauge_is_still_a_measurement_not_a_binary_sensor():
+    dp = _dp(*_GAUGE, value="41.8")
+    role = datapoint_role(dp, _gauge_types("urn:knx:fct.schneider.power.powerSensor"))
+    assert is_binary(role, dp) is False
 
 
 def test_binary_roles_and_measurements_are_told_apart():

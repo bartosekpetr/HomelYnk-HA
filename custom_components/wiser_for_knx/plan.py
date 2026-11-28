@@ -108,9 +108,14 @@ COMPOSITE_PLATFORMS = {
 
 
 def _roles(func: dict[str, Any]) -> dict[str, str | None]:
-    """Return {datapoint id: role} for a function's datapoints."""
+    """Return {datapoint id: role} for a function's datapoints.
+
+    The function's own types go with each datapoint, because a gauge's reading
+    can only be typed from the function URN (`datapoints.FCT_GAUGE_ROLES`).
+    """
+    types = func.get("types") or []
     return {
-        dp_id: datapoint_role(dp)
+        dp_id: datapoint_role(dp, types)
         for dp_id, dp in (func.get("datapoints") or {}).items()
     }
 

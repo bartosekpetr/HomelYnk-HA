@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- **A Gauge tile that says what it measures is now read as that.** A gauge
+  publishes one anonymous datapoint — the same archetype, no unit — whatever is
+  wired to it, so until now every gauge became a plain sensor showing the
+  published string: no unit, no device class, no graph and no long-term
+  statistics. A gauge whose **Device** setting names the quantity publishes that
+  on its function, and that is now used: humidity becomes a humidity sensor in
+  `%`, CO2 a CO2 sensor in ppm, brightness an illuminance sensor in lux.
+
+  Power, energy, voltage, current, frequency and wind speed name a quantity
+  whose **unit the API does not state** — a power gauge is kilowatts or watts
+  and nothing published says which — so those become a parsed number with
+  long-term statistics and no unit at all, instead of a unit that would be wrong
+  by a factor of 1000 on half the installations.
+
+  ⚠️ **Temperature is not among them, and cannot be.** The controller's own
+  Device list has no temperature entry, so a temperature gauge publishes exactly
+  what an unconfigured one publishes and stays a plain sensor. For °C with a
+  graph, read that sensor over KNX directly with Home Assistant's own KNX
+  integration alongside this one. Nothing is guessed here from a widget's
+  *name*: the Device setting's "Other device" option composes a function type
+  from free text the controller does not validate, and that text never picks a
+  device class.
+
+  An affected entity keeps its entity id and its history — only its unit,
+  device class and statistics change.
+
 ### Fixed
 
 - **The Push sensor no longer reports `unavailable`, which is a state Home

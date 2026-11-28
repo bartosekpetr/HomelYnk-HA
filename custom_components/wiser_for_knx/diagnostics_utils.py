@@ -103,9 +103,17 @@ def _dpt_type(types: Any) -> str | None:
     return None
 
 
-def datapoint_row(dp: dict[str, Any], consumed: bool) -> dict[str, Any]:
-    """Return one datapoint, with the decisions taken about it next to its data."""
-    role = datapoint_role(dp)
+def datapoint_row(
+    dp: dict[str, Any], consumed: bool, function_types: list[str] | None = None
+) -> dict[str, Any]:
+    """Return one datapoint, with the decisions taken about it next to its data.
+
+    `function_types` is passed through to `datapoint_role` so that the role and
+    platform printed here are the ones the plan actually used - a gauge's role
+    comes from its function's URN, and a diagnostics file that disagreed with
+    the running entity would be worse than no file.
+    """
+    role = datapoint_role(dp, function_types)
     title = dp.get("title") or ""
     return {
         "id": dp.get("id"),
@@ -135,17 +143,18 @@ def function_rows(functions: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         viable = bool(composite) and composite_is_viable(category, func)
         wanted = COMPOSITE_ROLES.get(category, frozenset()) if viable else frozenset()
 
+        types = list(func.get("types") or [])
         datapoints = []
         for _dp_id, dp in sorted((func.get("datapoints") or {}).items()):
-            role = datapoint_role(dp)
+            role = datapoint_role(dp, types)
             consumed = bool(role) and role in wanted and role not in DIAGNOSTIC_ROLES
-            datapoints.append(datapoint_row(dp, consumed))
+            datapoints.append(datapoint_row(dp, consumed, types))
 
         rows.append(
             {
                 "id": func_id,
                 "title": func.get("title"),
-                "types": list(func.get("types") or []),
+                "types": types,
                 "location_id": func.get("location_id"),
                 "category": category,
                 # The composite this function could become, and whether its

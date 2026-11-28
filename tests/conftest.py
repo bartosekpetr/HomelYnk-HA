@@ -149,7 +149,19 @@ if importlib.util.find_spec("homeassistant") is None:
             return None
 
     class _MockPlatformEntity(_MockEntity):
-        """Stand-in for LightEntity, SensorEntity, CoverEntity and the rest."""
+        """Stand-in for LightEntity, SensorEntity, CoverEntity and the rest.
+
+        `options` is here because the real `SensorEntity` has it: it returns
+        `_attr_options`, and an entity that sets the attribute and reads the
+        property is the ordinary Home Assistant pattern. Without it a test that
+        reads `sensor.options` passes in CI, against the real package, and fails
+        on a machine where `homeassistant` is not importable - the local/CI trap
+        of AGENTS.md §5 pointing the other way for once.
+        """
+
+        @property
+        def options(self):
+            return getattr(self, "_attr_options", None)
 
     class _MockCoordinatorEntity(_MockEntity):
         """Stand-in for CoordinatorEntity.

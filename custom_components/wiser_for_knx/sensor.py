@@ -13,6 +13,11 @@ Three groups of sensor:
 Units and device classes are chosen from the datapoint's role, never from the
 unit string the controller sends: its degrees are `C`, its micrograms use a
 Greek mu, and `dpt.valueLux` carries no unit at all.
+
+A gauge is the one reading whose role comes from its *function* rather than its
+datapoint, because its slot takes any DPT: a gauge configured as a humidity
+sensor gets `%` and a graph, and one configured as nothing in particular stays
+the plain string sensor it has always been (`datapoints.FCT_GAUGE_ROLES`).
 """
 
 from __future__ import annotations
@@ -64,6 +69,7 @@ from .datapoints import (
     ROLE_HVAC_MODE,
     ROLE_ILLUMINANCE,
     ROLE_LOCK_STATE,
+    ROLE_MEASUREMENT,
     ROLE_NO2,
     ROLE_OCCUPANCY_MODE,
     ROLE_OZONE,
@@ -169,6 +175,11 @@ _NUMERIC_ROLES: dict[str, tuple[SensorDeviceClass | None, str | None]] = {
     ROLE_BATTERY_LEVEL: (SensorDeviceClass.BATTERY, PERCENTAGE),
     ROLE_HEATING_DEMAND: (None, PERCENTAGE),
     ROLE_FAN_PERCENT: (None, PERCENTAGE),
+    # A configured gauge whose quantity the controller names but whose unit it
+    # does not: a power gauge is watts or kilowatts and nothing in the API says
+    # which. A number with statistics and no unit, never a unit that is wrong by
+    # a factor of 1000. See `datapoints.FCT_GAUGE_ROLES`.
+    ROLE_MEASUREMENT: (None, None),
 }
 
 # Roles whose value is one of a published set of names

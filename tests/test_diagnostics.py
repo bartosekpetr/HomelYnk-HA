@@ -141,6 +141,25 @@ def test_a_datapoint_without_a_title_is_reported_as_named_by_its_role():
     ]
 
 
+def test_a_gauge_row_prints_the_role_the_plan_actually_used():
+    """The file has to agree with the running entity, or it misleads a reader.
+
+    A gauge's role comes from its function's URN, so a diagnostics file that
+    read the datapoint alone would print `value` for an entity that is in fact
+    reporting a percentage - and this file is how the owner is asked what their
+    entities look like.
+    """
+    functions = _func(
+        "f5",
+        ["urn:knx:fct.gauge", "urn:knx:fct.schneider.weather.humiditySensor"],
+        _dp("g", "dic:dpa.417.65", "urn:knx:dpt.generic", value="41.8"),
+    )
+    row = _payload(functions)["functions"][0]["datapoints"][0]
+    assert row["role"] == "humidity"
+    assert row["platform"] == "sensor"
+    assert row["consumed_by_composite"] is False
+
+
 def test_an_archetype_with_no_measured_role_is_listed_for_measurement():
     functions = _func(
         "f4",

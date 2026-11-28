@@ -352,3 +352,47 @@ def test_a_lone_status_datapoint_still_becomes_a_sensor():
     )
     assert plan.get(PLATFORM_SWITCH) is None
     assert _keys(plan, PLATFORM_BINARY_SENSOR) == ["sw"]
+
+
+# --- the gauge --------------------------------------------------------------
+#
+# A gauge publishes one read-only `dic:dpa.417.65` datapoint whatever is wired
+# to it, and says what it measures - when it has been configured to - in a
+# second function `@type` composed from its `gauge-device` setting. The whole
+# decision is in `datapoints.FCT_GAUGE_ROLES`; what matters here is that it
+# changes the role and nothing else, because an entity that moved platform
+# would arrive as a second entity beside the one it replaced.
+
+
+def _gauge(*types):
+    return _func(
+        "f1",
+        ["urn:knx:fct.gauge", *types],
+        _dp("g", "dic:dpa.417.65", "urn:knx:dpt.generic", False, value="41.8"),
+    )
+
+
+def test_a_configured_gauge_keeps_its_platform_and_gains_its_role():
+    plan = plan_entities(_gauge("urn:knx:fct.schneider.weather.humiditySensor"))
+    assert _keys(plan, PLATFORM_SENSOR) == ["g"]
+    assert plan[PLATFORM_SENSOR][0]["role"] == "humidity"
+    assert plan[PLATFORM_SENSOR][0]["diagnostic"] is False
+
+
+def test_an_unconfigured_gauge_is_the_plain_sensor_it_has_always_been():
+    plan = plan_entities(_gauge("urn:knx:fct.schneider.generic"))
+    assert _keys(plan, PLATFORM_SENSOR) == ["g"]
+    assert plan[PLATFORM_SENSOR][0]["role"] == "value"
+
+
+def test_a_gauge_named_after_a_device_type_is_still_one_sensor():
+    """`fct.schneider.device.<name>` is free text, and the name is hostile here.
+
+    `classify_function` reads "Temperature" as a climate function; the datapoint
+    is read-only, so no composite is viable and the degradation contract gives
+    exactly one sensor - with no device class, because an unvalidated string
+    must not pick one.
+    """
+    plan = plan_entities(_gauge("urn:knx:fct.schneider.device.Temperature"))
+    assert list(plan) == [PLATFORM_SENSOR]
+    assert plan[PLATFORM_SENSOR][0]["role"] == "value"

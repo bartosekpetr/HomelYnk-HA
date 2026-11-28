@@ -18,8 +18,8 @@ from unittest.mock import AsyncMock, MagicMock
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.climate import ClimateEntityFeature, HVACMode
 from homeassistant.components.cover import CoverEntityFeature
-from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import LIGHT_LUX
+from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+from homeassistant.const import LIGHT_LUX, PERCENTAGE
 
 from custom_components.wiser_for_knx.binary_sensor import WiserKnxBinarySensor
 from custom_components.wiser_for_knx.climate import WiserKnxClimate
@@ -502,6 +502,56 @@ def test_a_sensor_datapoint_is_parsed_and_given_the_right_unit():
     assert entity.native_value == 2200.32
     assert entity.native_unit_of_measurement is LIGHT_LUX
     assert entity.device_class is SensorDeviceClass.ILLUMINANCE
+
+
+def test_a_configured_gauge_reports_its_quantity():
+    """A humidity gauge is a percentage on every DPT it can be wired to."""
+    gauge = _dp("g", "dic:dpa.417.65", "urn:knx:dpt.generic", value="41.8")
+    entity = _datapoint_entity(
+        WiserKnxDatapointSensor,
+        ["urn:knx:fct.gauge", "urn:knx:fct.schneider.weather.humiditySensor"],
+        gauge,
+        role="humidity",
+    )
+    assert entity.native_value == 41.8
+    assert entity.native_unit_of_measurement == PERCENTAGE
+    assert entity.device_class is SensorDeviceClass.HUMIDITY
+    assert entity.state_class is SensorStateClass.MEASUREMENT
+
+
+def test_a_gauge_with_an_ambiguous_unit_is_a_number_and_not_a_wrong_unit():
+    """`power.powerSensor` is DPT 9.024 kW or 14.056 W and the API says neither.
+
+    So the reading is parsed and gets long-term statistics - which is the half
+    of the complaint that can be fixed from here - and carries no unit at all
+    rather than one that is wrong by a factor of 1000 on half the sites.
+    """
+    gauge = _dp("g", "dic:dpa.417.65", "urn:knx:dpt.generic", value="1250")
+    entity = _datapoint_entity(
+        WiserKnxDatapointSensor,
+        ["urn:knx:fct.gauge", "urn:knx:fct.schneider.power.powerSensor"],
+        gauge,
+        role="measurement",
+    )
+    assert entity.native_value == 1250.0
+    assert entity.native_unit_of_measurement is None
+    assert entity.device_class is None
+    assert entity.state_class is SensorStateClass.MEASUREMENT
+
+
+def test_an_unconfigured_gauge_reports_the_published_string():
+    """The documented safe default, and what a temperature gauge still gets."""
+    gauge = _dp("g", "dic:dpa.417.65", "urn:knx:dpt.generic", value="21.8")
+    entity = _datapoint_entity(
+        WiserKnxDatapointSensor,
+        ["urn:knx:fct.gauge", "urn:knx:fct.schneider.generic"],
+        gauge,
+        role="value",
+    )
+    assert entity.native_value == "21.8"
+    assert entity.native_unit_of_measurement is None
+    assert entity.device_class is None
+    assert entity.state_class is None
 
 
 def test_an_enum_sensor_publishes_its_options():
