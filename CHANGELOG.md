@@ -2,7 +2,10 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.9.1 - 2026-11-28
+
+Two changes on top of 0.9.0, both answering reports from an installation running
+it. Neither touches the push channel's behaviour or any entity id.
 
 ### Added
 
