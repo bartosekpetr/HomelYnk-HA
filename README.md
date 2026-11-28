@@ -191,12 +191,18 @@ Worth knowing:
   polling goes back to full speed: that is the safety net doing its job, not a fault, and it returns
   to `live` by itself. A **power cut** can additionally lose a subscription registered in the
   preceding half hour — Home Assistant notices within a few minutes and registers a new one.
-- 🧪 **This is new and has not yet run on anyone's installation.** The protocol was measured against
-  a real controller, and the parts that can be tested here are tested, but the Home Assistant side
-  has never received a real callback. If entity state stops tracking the bus, turn *Instant updates*
-  off under **Configure** — that restores the previous behaviour immediately — and please
-  [open an issue](https://github.com/bartosekpetr/HomelYnk-HA/issues) with the **Push** sensor's
-  state and attributes.
+- 🧪 **This is new, and the first installation it ran on could not register the subscription.** The
+  protocol was measured against a real controller and the parts that can be tested here are tested,
+  but no Home Assistant has yet received a real callback. On the one installation reported so far
+  the controller answered the registration request with a **server error**, so push never started
+  and the integration polled exactly as it did before — which is the safety net working, and is why
+  nothing looked broken. Polling is unaffected either way, so there is nothing you need to do about
+  this; if you would rather not have it try at all, turn *Instant updates* off under **Configure**.
+
+  If your **Push** sensor reads `failed`, the `reason` attribute now names the HTTP status the
+  controller gave (for example `WiserKnxServerError (HTTP 500)`) rather than just the kind of
+  failure. Please [open an issue](https://github.com/bartosekpetr/HomelYnk-HA/issues) with the
+  sensor's state and attributes — that status is the piece that identifies the cause.
 
 ---
 

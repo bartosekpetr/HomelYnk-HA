@@ -524,7 +524,7 @@ mapping from the six measurements above to the code:
 |---|---|
 | `http://` callback is honoured | the callback URL is Home Assistant's **internal** URL (`get_url`, cloud excluded) plus a webhook path, so a plain-HTTP install works with no extra setup |
 | frame needs no new decoder | `parse_callback_body` returns `{id, value, timestamp}` and the value goes through the same `format_datapoint_value` the poll path uses. **No second decoder exists** |
-| the two automation-trigger virtuals are included silently | `coordinator.async_apply_push_values` applies a value only to a datapoint the last poll actually returned |
+| the two automation-trigger virtuals are included silently | `coordinator.async_apply_push_values` applies a value only to a datapoint the last poll actually returned — which keeps a frame from inventing state for an id the entity graph does not know, and `plan.py` gives the virtuals no entity. 🪤 It is **not** a filter on the virtuals themselves: on a real installation the poll *does* return both, so they pass this check, and they also go **out** in the subscribe body (`_wanted` is every exported datapoint). Harmless for state; unmeasured for the subscribe request, and one of the live candidates in §3d |
 | signature is base64 of the **ASCII hex**, `Date` verbatim | `push_utils.expected_signature`, compared with `hmac.compare_digest`. The `path` and `authority` come from the **registered** URL, not from the inbound request, so a reverse proxy rewriting `Host` cannot invalidate a frame |
 | the secret is kept in clear on the controller | a fresh `secrets.token_urlsafe(32)` per entry, regenerated on **every** re-assert, never logged, never in the sensor's attributes. A valid signature authorises exactly one thing: setting that datapoint's value |
 | a callback is a state notification | each frame is applied as "this is the current value"; nothing counts edges |
@@ -558,6 +558,52 @@ and matching the path means one entry can never delete another's record.
 🪤 Everything in this section that needs Home Assistant itself — the webhook registration, the
 watchdog, the unload path, the cadence switch — is **not covered by the test suite**, which mocks
 Home Assistant. The signature, the frame decode and the liveness decision are covered.
+
+### 3d. The first run in a real Home Assistant: the subscription was refused with a 5xx
+
+Read from a diagnostics download on 2026-11-28 — the first HA-side evidence this channel has ever
+had, and the first thing in §3 measured from inside Home Assistant rather than against the
+controller. Installation: Home Assistant OS 2026.11.3, integration **0.9.0-beta.1**, 29 functions
+and 44 datapoints exported.
+
+```
+push: status "unavailable"   reason "WiserKnxServerError"
+      datapoints_subscribed 0   callbacks_received 0
+      callbacks_rejected 0      delivery_stops 0
+poll: last_update_success true   update_interval_seconds 10
+      consecutive_server_errors 0
+```
+
+What that pins down, because only one code path can produce it: `reason` is set **only** in the
+`except` around `_async_subscribe`, and orphan reconciliation swallows its own errors, so this is
+`POST /subscribe` itself answering **5xx**. `WiserKnxServerError` is raised for nothing else. With
+44 datapoints against `PUSH_SUBSCRIBE_CHUNK` of 100, exactly one request was made — the whole set
+in one body, no batching — so the batching fallback is not implicated either.
+
+Three things follow, and the third is the useful one:
+
+- 🔴 **Push has never worked on an installation, and the degradation path did.** `status` was the
+  pre-0.9.1 spelling of `failed`, the cadence went back to `scan_interval`, and the poll was
+  perfectly healthy at that moment: success true, **zero** consecutive server errors. Nothing looked
+  broken to the user, which is exactly what the backstop is for and is also why this sat unreported
+  for two days.
+- **The controller was answering reads fine while refusing to register a callback.** So this is not
+  the intermittent 5xx that `/datapoints` and `/functions` throw while the export recomputes (§4) —
+  that would have shown up in `consecutive_server_errors`. It is specific to the subscribe handler.
+- 🪤 **The bare class name was not enough to diagnose it, and that is now fixed.** 500, 503 and 504
+  from this unit point at different halves of it, and the status code was only ever in a
+  `_LOGGER.debug` line that a default installation does not write. `push_utils.subscribe_failure_reason`
+  now puts it in the reason (`WiserKnxServerError (HTTP 500)`), while still keeping the exception's
+  *message* out, because that names the controller's address and the reason is an entity attribute
+  that travels into a diagnostics download.
+
+**Which 5xx, and therefore why, is still unknown** — do not fix towards a guess. The candidates
+have not been narrowed by anything measured: the callback URL Home Assistant resolved (diagnostics
+redacts the host by design, so the scheme and whether it is an IP or a name are not in the file),
+the two automation-trigger virtuals going out in the body (`_wanted` is every exported datapoint,
+and on this installation the poll returns both virtuals, so they are *not* filtered on either side),
+or a body of 44 ids. The next diagnostics download from an 0.9.1-or-later build answers the first
+question for free; reproducing `POST /subscribe` against a controller answers all of them.
 
 The alternative that already works, and why it is still the wrong choice here: the localbus
 WebSocket at `/apps/localbus.lp` upgrades (101) over pinned TLS with Basic auth and carries live
